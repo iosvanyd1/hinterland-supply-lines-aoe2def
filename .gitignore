@@ -1,0 +1,17 @@
+# Build output
+/build/
+/dist/
+__pycache__/
+*.egg-info/
+.pytest_cache/
+.venv/
+
+# Local machine config
+/config/paths.local.toml
+
+# Never commit game data (copyrighted, and changes every patch)
+*.dat
+civilizations.json
+
+# Tooling binaries fetched by scripts/setup.ps1
+/tools/bin/

@@ -1,0 +1,67 @@
+"""Mod metadata (pyproject.toml) and local game paths (config/paths.local.toml + env)."""
+import os
+import tomllib
+from dataclasses import dataclass
+from pathlib import Path
+
+from hinterland import REPO_ROOT
+
+DEFAULT_INSTALL_DIR = Path(r"C:\Program Files (x86)\Steam\steamapps\common\AoE2DE")
+PROFILES_ROOT = Path.home() / "Games" / "Age of Empires 2 DE"
+
+
+@dataclass(frozen=True)
+class ModInfo:
+    name: str
+    title: str
+    author: str
+    description: str
+    version: str
+
+
+def load_mod_info() -> ModInfo:
+    data = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    mod = data["tool"]["hinterland"]["mod"]
+    return ModInfo(
+        name=mod["name"],
+        title=mod["title"],
+        author=mod["author"],
+        description=mod["description"],
+        version=data["project"]["version"],
+    )
+
+
+@dataclass(frozen=True)
+class GamePaths:
+    install_dir: Path
+    profile_dir: Path | None
+
+    @property
+    def vanilla_dat(self) -> Path:
+        return self.install_dir / "resources" / "_common" / "dat" / "empires2_x2_p1.dat"
+
+    @property
+    def civilizations_json(self) -> Path:
+        return self.install_dir / "resources" / "_common" / "dat" / "civilizations.json"
+
+    @property
+    def local_mods_dir(self) -> Path | None:
+        return self.profile_dir / "mods" / "local" if self.profile_dir else None
+
+
+def _detect_profile() -> Path | None:
+    if not PROFILES_ROOT.is_dir():
+        return None
+    candidates = [p for p in PROFILES_ROOT.iterdir() if p.is_dir() and p.name.isdigit()]
+    return candidates[0] if len(candidates) == 1 else None
+
+
+def load_game_paths() -> GamePaths:
+    local = REPO_ROOT / "config" / "paths.local.toml"
+    cfg = tomllib.loads(local.read_text(encoding="utf-8")) if local.exists() else {}
+    install = os.environ.get("AOE2_INSTALL_DIR") or cfg.get("install_dir") or str(DEFAULT_INSTALL_DIR)
+    profile = os.environ.get("AOE2_PROFILE_DIR") or cfg.get("profile_dir") or ""
+    return GamePaths(
+        install_dir=Path(install),
+        profile_dir=Path(profile) if profile else _detect_profile(),
+    )
