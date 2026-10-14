@@ -78,7 +78,7 @@ scripts\deploy.ps1 -AlsoProfile                  # close the game first
 Notes:
 - **Close the game before deploying.** It locks mod files and reads the .dat and XS at startup or game start.
 - `scripts\deploy.ps1 -Mode Link` makes the mods folder a junction to `build\`, so later builds need no redeploy. Still restart the match to reload XS.
-- After changing a patch, the next `build` rewrites `src\xs\Hinterland\generated_ids.xs` with the new unit IDs. Commit that file.
+- `build` writes the real IDs of new data-mod objects into `build\HinterlandSupplyLines\resources\_common\xs\Hinterland\generated_ids.xs`. The committed `src\xs\Hinterland\generated_ids.xs` keeps the `-1` placeholders, because IDs such as the Supply Cart's (`len(units)`, 2750 on the current game version) shift when a game patch adds units. Do not commit real IDs.
 
 ## 5. Testing in game
 

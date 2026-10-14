@@ -21,6 +21,7 @@ EFFECT_ENABLE_DISABLE_UNIT = 2
 
 # Task / action types
 ACTION_TRADE = 111
+ACTION_AURA = 155
 
 # Unit class IDs
 CLASS_TRADE_CART = 19

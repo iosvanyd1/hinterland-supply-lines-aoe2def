@@ -11,6 +11,7 @@ def test_build_without_dat_mirrors_game_layout():
     assert (common / "xs" / "HinterlandSupplyLines.xs").is_file()
     assert (common / "xs" / "Hinterland" / "main.xs").is_file()
     assert (common / "random-map-scripts" / "HinterlandArabia.rms").is_file()
+    assert (root / "resources" / "en" / "strings" / "key-value" / "key-value-modded-strings-utf8.txt").is_file()
     info = json.loads((root / "info.json").read_text(encoding="utf-8"))
     assert info["Title"].startswith(mod.title)
 

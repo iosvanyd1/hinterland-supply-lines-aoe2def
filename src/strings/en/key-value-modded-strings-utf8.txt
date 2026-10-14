@@ -1,0 +1,4 @@
+// Hinterland Supply Lines strings. IDs are set in hinterland/datmod/patches/supply_cart.py.
+31750001 "Supply Cart"
+31750002 "Supply Cart"
+31750003 "Train <b>Supply Cart<b> (<cost>)\nCarries supply from your capital Town Center to forward buildings. Move it next to the capital to load, then next to a forward building to refill its supply window.\n<hp> <attack> <armor> <piercearmor>"

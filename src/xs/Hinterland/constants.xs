@@ -26,9 +26,13 @@ extern const int cSupplyRefuelSeconds = 90;     // added per cart delivery
 extern const int cSupplyCapSeconds = 180;       // max banked window
 extern const float cCartDeliveryRange = 4.0;    // tiles from building centre
 
+// ---- Debug ----
+// Shows TC distance and radius in building captions. Turn off before release.
+extern const bool cDebugSupply = true;
+
 // ---- Coverage (design sections 6, 11, 13) ----
 extern const float cCapitalRadius = 20.0;       // tiles
-extern const float cTownCenterRadius = 12.0;    // tiles, secondary TCs
+extern const float cTownCenterRadius = 12.0;    // tiles, secondary TCs; = TC_SUPPLY_RADIUS in supply_radius.py
 
 // ---- Food upkeep (design section 5) ----
 extern const float cFoodUpkeepPerUnitPerSecond = 0.02;

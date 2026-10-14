@@ -52,13 +52,16 @@ class GamePaths:
 def _detect_profile() -> Path | None:
     if not PROFILES_ROOT.is_dir():
         return None
-    candidates = [p for p in PROFILES_ROOT.iterdir() if p.is_dir() and p.name.isdigit()]
+    # "0" is the game's offline/default profile; the real one is the SteamID64.
+    candidates = [
+        p for p in PROFILES_ROOT.iterdir() if p.is_dir() and p.name.isdigit() and p.name != "0"
+    ]
     return candidates[0] if len(candidates) == 1 else None
 
 
 def load_game_paths() -> GamePaths:
     local = REPO_ROOT / "config" / "paths.local.toml"
-    cfg = tomllib.loads(local.read_text(encoding="utf-8")) if local.exists() else {}
+    cfg = tomllib.loads(local.read_text(encoding="utf-8-sig")) if local.exists() else {}
     install = os.environ.get("AOE2_INSTALL_DIR") or cfg.get("install_dir") or str(DEFAULT_INSTALL_DIR)
     profile = os.environ.get("AOE2_PROFILE_DIR") or cfg.get("profile_dir") or ""
     return GamePaths(

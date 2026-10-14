@@ -15,7 +15,7 @@ How the design ([Supply Lines & Upkeep — AoE2 DE Mod Design](https://claude.ai
 | `src/xs/HinterlandSupplyLines.xs` | Flat entry point (RMS and scenario load this) |
 | `src/xs/Hinterland/main.xs` | State arrays, helpers, rules |
 | `src/xs/Hinterland/constants.xs` | Vanilla IDs and tuning dials |
-| `src/xs/Hinterland/generated_ids.xs` | IDs of new data-mod objects, written by the build |
+| `src/xs/Hinterland/generated_ids.xs` | IDs of new data-mod objects. Committed with `-1` placeholders; the build writes real IDs into its copy under `build/` |
 
 ## Mechanics → implementation
 

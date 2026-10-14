@@ -16,7 +16,7 @@ $src = Join-Path $repo "build\$ModName"
 $base = Join-Path $env:USERPROFILE 'Games\Age of Empires 2 DE'
 
 if (-not $SteamId) {
-    $ids = @(Get-ChildItem $base -Directory | Where-Object { $_.Name -match '^\d+$' -and (Test-Path (Join-Path $_.FullName 'mods')) })
+    $ids = @(Get-ChildItem $base -Directory | Where-Object { $_.Name -match '^\d+$' -and $_.Name -ne '0' -and (Test-Path (Join-Path $_.FullName 'mods')) })
     if ($ids.Count -ne 1) { throw "Found $($ids.Count) profiles in $base; pass -SteamId <number>" }
     $SteamId = $ids[0].Name
 }
@@ -24,6 +24,9 @@ $profileDir = Join-Path $base $SteamId
 $dest = Join-Path $profileDir "mods\local\$ModName"
 
 if (-not (Test-Path $src)) { throw "Build output missing: $src. Run: .venv\Scripts\python.exe -m hinterland build" }
+if (-not (Test-Path (Join-Path $src 'resources\_common\dat\empires2_x2_p1.dat'))) {
+    Write-Warning 'Build has no .dat (built with --no-dat?). Only XS/RMS will change in game; the Supply Cart will be missing.'
+}
 if (Get-Process -Name 'AoE2DE*' -ErrorAction SilentlyContinue) {
     Write-Warning 'AoE2 DE is running. Close it first; the game locks mod files and only reads them at startup.'
 }

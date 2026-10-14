@@ -25,14 +25,37 @@ COST_WOOD = 100
 TC_BUTTON_ID = 10          # unverified: must be a free slot on the TC panel
 EXPERIMENTAL_TRADE_TO_TC = False
 
+# Look: the vanilla Ox Cart, so the Supply Cart is not mistaken for a Trade Cart.
+LOOK_UNIT = 1271           # OXCART (idle/walk/death graphics, icon 263)
+LOOK_CORPSE = 1272         # OXCART_D
+
+# Strings live in src/strings/en/key-value-modded-strings-utf8.txt.
+STRING_NAME = 31750001
+STRING_CREATION = 31750002
+STRING_HELP = 31750003
+# Unverified: the game shows help string (language_dll_help - 79000), as the Trade
+# Cart's 105100 -> 26100 suggests.
+HELP_ID_OFFSET = 79000
+
 RES_FOOD = 0
 RES_WOOD = 1
 RES_GOLD = 3
 
 
+def _apply_look(unit, look) -> None:
+    unit.standing_graphic = look.standing_graphic
+    unit.dying_graphic = look.dying_graphic
+    unit.dead_fish.walking_graphic = look.dead_fish.walking_graphic
+    unit.icon_id = look.icon_id
+    unit.dead_unit_id = LOOK_CORPSE
+
+
 def _configure(unit, new_id: int) -> None:
     unit.id = new_id
     unit.name = "SUPPLYCART"
+    unit.language_dll_name = STRING_NAME
+    unit.language_dll_creation = STRING_CREATION
+    unit.language_dll_help = STRING_HELP + HELP_ID_OFFSET
     unit.hit_points = HIT_POINTS
     unit.enabled = 0                       # enabled by Castle Age below
 
@@ -66,6 +89,7 @@ def apply(data: DatFile, new_ids: dict[str, int]) -> None:
         source = civ.units[vanilla.TRADE_CART] or template
         cart = clone(source, data.version)
         _configure(cart, new_id)
+        _apply_look(cart, civ.units[LOOK_UNIT] or data.civs[0].units[LOOK_UNIT])
         civ.units.append(cart)
     logging.info("Supply Cart cloned as unit %d in %d civs", new_id, len(data.civs))
 

@@ -22,7 +22,7 @@ Consolidated from the four research reports in this folder (researched 2026-10-1
 | U11 | Multiplayer packaging | Resolved / Test | Data mod (cart unit, dark twins) + RMS with `#includeXS`; all logic in XS rules. Unranked lobbies only. Lobby prompts players to subscribe to the data mod. Known issues: XS is not saved in recorded games; nested XS `include` historically did not transfer (irrelevant when everything ships in the mod); whether the game lists RMS from inside a local mod is unverified (`deploy.ps1 -AlsoProfile` fallback). | T12 |
 | U12 | Performance of aura + pool at late-game scale | Test | No benchmarks exist. Use 1–2 s rule intervals, never `highFrequency`; the buffed pool is bounded by units near TCs. | T13 |
 | U13 | Can a data mod run XS on its own (no RMS/scenario)? | Open (conflicting) | [triggers-ui-multiplayer.md §4](triggers-ui-multiplayer.md) reports tech effects calling XS via resource 33 + `Effects.xs` (Aug 2025). [dat-modding.md](dat-modding.md) found no evidence. If true, the mod could work on any map. | T14 |
-| U14 | What happens to queued units when a building locks | Open | Design (section 10.1): the current unit finishes, the rest pause, no refund. Engine: unknown for Enable/Disable Object; Stop/Freeze Object clears the queue (refund unknown). May force a design change to "queue cancelled, refunded". | T8 |
+| U14 | What happens to queued units when a building locks | Decided 2026-10-14: **cancel the queue and refund** (user choice; replaces design 10.1 "pause, no refund"). Playtest 2026-10-14: an unselectable building keeps producing its existing queue; `xsStopUnit` alone does not clear it. **Resolved:** `xsTaskUnits(Stop)` + `xsStopUnit` on lock clears the queue and the engine refunds (playtest 2026-10-14). Which of the two calls does it is untested. | T8 |
 
 ## In-game test list
 
@@ -44,6 +44,7 @@ Run in the Scenario Editor (Test button) unless noted. Record results in [../PLA
 | T12 | Local mod only (no `-AlsoProfile`): is the map listed? 2-player LAN/lobby: does it sync? | U11 |
 | T13 | 4-player late game, 200 pop each: frame time with the aura + pool rules on vs off | U12 |
 | T14 | Data mod with a tech that sets resource 33: does an `Effects.xs` function run without the RMS? | U13 |
+| T15 | Supply-radius circle (inert TC aura, flag 6, 12 tiles; capital widened to 20 by `xsModifyUnitTasks`): does it draw for each setting of Options > Game > "Building and Aura range indicator"? Only when selected? Do enemies see it? Is the capital's circle bigger, and which chat line appears at start? | U9 |
 
 ## Reports
 

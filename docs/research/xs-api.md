@@ -585,3 +585,16 @@ The limitation stays: triggers need fixed Areas or pre-placed Selected Units. Pr
 4. Does `xsModifyUnitTasks(capitalTcId, ...)` with an aura task affect only that TC?
 5. Can a local tech's effect disable train or research buttons on one building, and can it be re-researched?
 6. What does `xsGetUnitProperty(tc, cUnitActionId)` return while the TC is researching? Can it identify which TC clicked "make capital"?
+
+## Addendum 2026-10-14: cancelling one building's queue (U14)
+
+Sources: Divy1211/AoE2DE_UGC_Guide (`docs/general/xs/functions`, `constants`) and the Update 185872 patch notes.
+
+- VERIFIED: `bool xsStopUnit(int unitId)`, "Stops the unit. Same as the editor effect." The constant `cActionTypeStop = 5` is for `xsTaskUnits`. Patch 185872 lists `xsTaskUnits` as `void`, so do not rely on its return value.
+- VERIFIED: Update 185872 says Stop Object/Freeze Object/Task Object (Stop) "will now correctly clear building production queues". The XS functions only inherit this through "same as the editor effect", so this is LIKELY. Used in `hlSetBuildingLocked`; checked by T8.
+- UNKNOWN: whether stopping refunds the queue.
+- VERIFIED absent: no function reads a queue's contents or cancels one item. Per-player indirect readers exist, for example `xsGetObjectCountTotal` (which counts queued objects too) and `xsGetTechState` (2 = researching, 4 = queued).
+- VERIFIED: functions for computing a refund in XS, if the engine does not refund:
+  - `xsGetObjectAttribute(p, objectId, cFoodCost 103 | cWoodCost 104 | cGoldCost 105 | cStoneCost 106, 0)`
+  - `xsGetTechAttribute(p, techId, cTechCost 1, resourceId)`
+  - `xsEffectAmount(cModResource, resId, cAttributeAdd, amount, p)`
