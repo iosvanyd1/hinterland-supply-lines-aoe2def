@@ -8,6 +8,7 @@ GENERATED_IDS = SRC_XS / "Hinterland" / "generated_ids.xs"
 # Every constant the XS expects, with the placeholder used before the dat is built.
 DEFAULTS = {
     "cSupplyCartId": -1,
+    "cLoadedSupplyCartId": -1,
     "cPalaceId": -1,
 }
 

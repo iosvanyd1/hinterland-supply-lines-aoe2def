@@ -44,6 +44,10 @@ int gScratch = -1;
 // One-element array for xsTaskUnits.
 int gTaskIds = -1;
 
+// Cart lists per tick (empty and loaded types), kept apart from gScratch.
+int gEmptyCarts = -1;
+int gLoadedCarts = -1;
+
 // Debug (cDebugSupply): nearest supply source seen by the last hlIsCovered call.
 float gDebugDist = -1.0;
 float gDebugRadius = -1.0;
@@ -131,6 +135,30 @@ void hlSetBuildingLocked(int index = -1, bool locked = false) {
     }
 }
 
+// Swap one cart between its empty (Ox Cart) and loaded (Ox Wagon) unit types,
+// in place, keeping HP; the tracked slot follows the new unit ID, so the route
+// survives. Returns the new unit ID. Costs: the cart leaves the player's
+// selection and control groups. TODO(test T17): does xsRemoveUnit count as a
+// loss or play a death sound?
+int hlSwapCart(int ci = -1, int cart = -1, int playerId = -1, bool loaded = false) {
+    int objectId = cSupplyCartId;
+    if (loaded) {
+        objectId = cLoadedSupplyCartId;
+    }
+    vector pos = xsGetUnitPosition(cart);
+    float hp = xsGetUnitHitpoints(cart);
+    xsRemoveUnit(cart);
+    int nid = xsCreateUnit(objectId, playerId, pos, false, false, false);
+    xsSetUnitHitpoints(nid, hp);
+    xsArraySetInt(gCartIds, ci, nid);
+    if (loaded) {
+        xsArraySetInt(gCartLoaded, ci, 1);
+    } else {
+        xsArraySetInt(gCartLoaded, ci, 0);
+    }
+    return (nid);
+}
+
 // Order one cart to walk to a unit (the Palace or its route building).
 void hlMoveCart(int cart = -1, int target = -1) {
     xsArraySetInt(gTaskIds, 0, cart);
@@ -193,6 +221,8 @@ void main() {
     gSourceOwner = xsArrayCreateInt(cMaxTrackedBuildings, -1, "hlSourceOwner");
     gScratch = xsArrayCreateInt(1, -1, "hlScratch");
     gTaskIds = xsArrayCreateInt(1, -1, "hlTaskIds");
+    gEmptyCarts = xsArrayCreateInt(1, -1, "hlEmptyCarts");
+    gLoadedCarts = xsArrayCreateInt(1, -1, "hlLoadedCarts");
 }
 
 // ---------------------------------------------------------------------------
@@ -332,101 +362,104 @@ rule hlSupplyTick
 }
 
 // Load at the Palace, deliver to the nearest non-full recipient where the cart
-// stopped. A delivery sets the cart's route; XS then shuttles it between the
-// Palace and that building with Move orders (U5 fallback to the trade task).
+// stopped. Loading and delivering swap the cart between its empty and loaded
+// unit types (hlSwapCart). A delivery sets the cart's route; XS then shuttles it
+// between the Palace and that building with Move orders (U5).
 // Without a Palace, carts already loaded still deliver; they just cannot reload.
+void hlCartTick(int p = -1, int cart = -1, bool isLoadedType = false) {
+    int palace = xsArrayGetInt(gPalaceIds, p);
+    int ci = hlFindCart(cart);
+    if (ci < 0) {
+        if (gCartCount >= cMaxTrackedCarts) {
+            return;
+        }
+        ci = gCartCount;
+        xsArraySetInt(gCartIds, ci, cart);
+        xsArraySetInt(gCartRoute, ci, -1);
+        xsArraySetVector(gCartLastPos, ci, vector(-1, -1, -1));
+        gCartCount++;
+    }
+    if (isLoadedType) {
+        xsArraySetInt(gCartLoaded, ci, 1);
+    } else {
+        xsArraySetInt(gCartLoaded, ci, 0);
+    }
+    vector cartPos = xsGetUnitPosition(cart);
+    bool stopped = (dist(cartPos, xsArrayGetVector(gCartLastPos, ci)) < cCartStoppedEpsilon);
+    xsArraySetVector(gCartLastPos, ci, cartPos);
+
+    if (isLoadedType == false) {
+        if (palace < 0) {
+            return;
+        }
+        if (dist(cartPos, xsGetUnitPosition(palace)) > cCartLoadRange) {
+            return;
+        }
+        int loaded = hlSwapCart(ci, cart, p, true);
+        int route = xsArrayGetInt(gCartRoute, ci);
+        if ((route >= 0) && xsDoesUnitExist(route) && (xsGetUnitOwner(route) == p)) {
+            hlMoveCart(loaded, route);
+        } else {
+            xsArraySetInt(gCartRoute, ci, -1);
+        }
+        return;
+    }
+
+    // Unload only where the cart stopped: the building the player (or the
+    // route) sent it to. Carts driving past other buildings keep their load.
+    // Of the buildings in range, the nearest non-full one takes the load;
+    // full ones (every covered building) never do.
+    int target = -1;
+    float targetDist = 9999.0;
+    for (b = 0; < gBuildingCount) {
+        int building = xsArrayGetInt(gBuildingIds, b);
+        if (xsGetUnitOwner(building) != p) {
+            continue;
+        }
+        float toBuilding = dist(cartPos, xsGetUnitPosition(building));
+        if ((toBuilding > cCartDeliveryRange) || (toBuilding >= targetDist)) {
+            continue;
+        }
+        if (xsArrayGetInt(gBuildingSupply, b) >= cSupplyCapSeconds) {
+            continue;
+        }
+        target = b;
+        targetDist = toBuilding;
+    }
+    if ((stopped == false) || (target < 0)) {
+        return;
+    }
+    int s = xsArrayGetInt(gBuildingSupply, target) + cSupplyRefuelSeconds;
+    if (s > cSupplyCapSeconds) {
+        s = cSupplyCapSeconds;
+    }
+    xsArraySetInt(gBuildingSupply, target, s);
+    xsArraySetInt(gCartRoute, ci, xsArrayGetInt(gBuildingIds, target));
+    int empty = hlSwapCart(ci, cart, p, false);
+    if (palace >= 0) {
+        hlMoveCart(empty, palace);
+    }
+}
+
 rule hlCartLogistics
     active
     minInterval 1
     maxInterval 1
 {
-    if (cSupplyCartId < 0) {
+    if ((cSupplyCartId < 0) || (cLoadedSupplyCartId < 0)) {
         return;
     }
     for (p = 1; < xsGetNumPlayers()) {
-        int carts = xsGetPlayerUnitIds(p, cSupplyCartId, gScratch);
-        int n = xsArrayGetSize(carts);
-        int palace = xsArrayGetInt(gPalaceIds, p);
-        for (c = 0; < n) {
-            int cart = xsArrayGetInt(carts, c);
-            int ci = hlFindCart(cart);
-            if (ci < 0) {
-                if (gCartCount >= cMaxTrackedCarts) {
-                    continue;
-                }
-                ci = gCartCount;
-                xsArraySetInt(gCartIds, ci, cart);
-                xsArraySetInt(gCartLoaded, ci, 0);   // trained empty: load at the Palace
-                xsArraySetInt(gCartRoute, ci, -1);
-                xsArraySetVector(gCartLastPos, ci, vector(-1, -1, -1));
-                gCartCount++;
-            }
-            vector cartPos = xsGetUnitPosition(cart);
-            bool stopped = (dist(cartPos, xsArrayGetVector(gCartLastPos, ci)) < cCartStoppedEpsilon);
-            xsArraySetVector(gCartLastPos, ci, cartPos);
-
-            if (xsArrayGetInt(gCartLoaded, ci) == 0) {
-                if (palace < 0) {
-                    xsSetUnitCaption(cart, "Empty: no Palace");
-                    continue;
-                }
-                float toPalace = dist(cartPos, xsGetUnitPosition(palace));
-                if (toPalace <= cCartLoadRange) {
-                    xsArraySetInt(gCartLoaded, ci, 1);
-                    int route = xsArrayGetInt(gCartRoute, ci);
-                    if ((route >= 0) && xsDoesUnitExist(route) && (xsGetUnitOwner(route) == p)) {
-                        hlMoveCart(cart, route);
-                    } else {
-                        xsArraySetInt(gCartRoute, ci, -1);
-                    }
-                    continue;
-                }
-                string emptyText = "Empty: return to Palace";
-                if (cDebugSupply) {
-                    emptyText = emptyText + " [d " + toPalace + "]";
-                }
-                xsSetUnitCaption(cart, emptyText);
-                continue;
-            }
-
-            string loadedText = "Loaded";
-            xsSetUnitCaption(cart, loadedText);
-            // Unload only where the cart stopped: the building the player (or the
-            // route) sent it to. Carts driving past other buildings keep their load.
-            // Of the buildings in range, the nearest non-full one takes the load;
-            // full ones (every covered building) never do.
-            int target = -1;
-            float targetDist = 9999.0;
-            for (b = 0; < gBuildingCount) {
-                int building = xsArrayGetInt(gBuildingIds, b);
-                if (xsGetUnitOwner(building) != p) {
-                    continue;
-                }
-                float toBuilding = dist(cartPos, xsGetUnitPosition(building));
-                if (cDebugSupply && (toBuilding < 10.0)) {
-                    xsSetUnitCaption(cart, loadedText + " [near " + building + " d " + toBuilding + "]");
-                }
-                if ((toBuilding > cCartDeliveryRange) || (toBuilding >= targetDist)) {
-                    continue;
-                }
-                if (xsArrayGetInt(gBuildingSupply, b) >= cSupplyCapSeconds) {
-                    continue;
-                }
-                target = b;
-                targetDist = toBuilding;
-            }
-            if (stopped && (target >= 0)) {
-                int s = xsArrayGetInt(gBuildingSupply, target) + cSupplyRefuelSeconds;
-                if (s > cSupplyCapSeconds) {
-                    s = cSupplyCapSeconds;
-                }
-                xsArraySetInt(gBuildingSupply, target, s);
-                xsArraySetInt(gCartLoaded, ci, 0);
-                xsArraySetInt(gCartRoute, ci, xsArrayGetInt(gBuildingIds, target));
-                if (palace >= 0) {
-                    hlMoveCart(cart, palace);
-                }
-            }
+        // Both lists first: swaps during the tick must not be seen twice.
+        int empties = xsGetPlayerUnitIds(p, cSupplyCartId, gEmptyCarts);
+        int loadeds = xsGetPlayerUnitIds(p, cLoadedSupplyCartId, gLoadedCarts);
+        int ne = xsArrayGetSize(empties);
+        int nl = xsArrayGetSize(loadeds);
+        for (c = 0; < ne) {
+            hlCartTick(p, xsArrayGetInt(empties, c), false);
+        }
+        for (c = 0; < nl) {
+            hlCartTick(p, xsArrayGetInt(loadeds, c), true);
         }
     }
 }

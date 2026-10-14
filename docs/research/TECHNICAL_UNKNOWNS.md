@@ -13,7 +13,7 @@ Consolidated from the four research reports in this folder (researched 2026-10-1
 | U2 | Modify stats of ONE unit | Test | `xsEffectAmount(cAddUnitAttribute (11), unitId, attr, value)` (also Set = 10, Mul = 12). Read back with `xsGetUnitAttribute`. Attack/armor packing is `class*256 + amount`. The per-type "Set adds instead" bug (Aug 2022) may also apply per unit, so use Add with negative values only. | T2, T3 |
 | U3 | TC aura: manual pool vs native aura task | Test | A: manual buffed pool, the design's section 13 approach (scaffold path). B: native aura task via `xsModifyObjectTasks` / `xsModifyUnitTasks` (UGC Tricks §3), where the engine buffs and unbuffs by itself; not all attributes work. | T4 |
 | U4 | Custom Supply Cart unit in the .dat | Resolved / Test | Clone Trade Cart 128 into every civ (genieutils-py, auto-mods pattern); train at TC 109; enable via Castle Age tech 102 effect (type 2). Implemented in `hinterland/datmod/patches/supply_cart.py`. Unverified: a free TC button slot (`TC_BUTTON_ID`). | T5 |
-| U5 | Trade-Cart-style auto pathing capital → destination → capital | Open | Trade task is action type 111, with target object/class and drop sites in the .dat. No mod or doc shows trading with a non-Market. Experiment: `EXPERIMENTAL_TRADE_TO_TC` in the patch. Fallback: XS loop issuing move orders (`xsTaskUnits` / Task Object) between capital and destination. The fallback gives the same player-facing behaviour. | T6 |
+| U5 | Trade-Cart-style auto pathing capital → destination → capital | Resolved 2026-10-14 | XS issues Move orders (`xsTaskUnits`): a cart's delivery sets its route, then it shuttles Palace ↔ building. Playtested. The native trade-path experiment was dropped. | ~~T6~~ |
 | U6 | Lock training AND research at one building | Open | No per-building API: every enable/disable is per player per type. Candidates: (a) `xsSetUnitProperty(id, cUnitSelectable, 0)` (scaffold stand-in; blocks new orders but also gather points/garrison); (b) swap for a data-mod "dark twin" with no buttons (`xsRemoveUnit` + `xsCreateUnit`, restore HP); (c) local technologies per building instance, if a local tech can remove buttons; (d) Stop/Freeze Object clears one building's queue (Sept 2026). | T7, T8 |
 | U7 | Detect a cart arriving at a building | Resolved | Poll cart positions each second (`xsGetPlayerUnitIds` + `xsGetUnitPosition` + `dist`). More robust: make carts garrison into the target, then `xsGetGarrisonedInUnitId`. | — |
 | U8 | ~~"Make capital" button + cooldown~~ | Superseded 2026-10-14 | The capital is now the Palace building (design section 11): one per player, rebuildable, no button or cooldown. | ~~T9~~ |
@@ -35,7 +35,7 @@ Run in the Scenario Editor (Test button) unless noted. Record results in [../PLA
 | T3 | Per-unit Set on attack/armor: does it set or add? | U2 |
 | T4 | Aura task on one TC via `xsModifyUnitTasks`: only that TC projects it? Which attributes work? | U3 |
 | T5 | Built data mod: Supply Cart appears at TC in Castle Age, in a free button slot, correct cost | U4 |
-| T6 | With `EXPERIMENTAL_TRADE_TO_TC = True`: does the cart shuttle between own TC and a target? Gold generated? | U5 |
+| T6 | ~~Native trade path to a TC~~: dropped; XS routing works (U5). | U5 |
 | T7 | `cUnitSelectable = 0` on a Barracks: can the player still queue via hotkeys / select-all / control groups? | U6 |
 | T8 | Disable-then-reenable on a building with a 5-unit queue: what happens to the queue and resources, for each lock option (a–d)? | U6, U14 |
 | T9 | ~~Charter unit at a secondary TC~~: superseded by the Palace (U8). | U8 |
@@ -46,6 +46,7 @@ Run in the Scenario Editor (Test button) unless noted. Record results in [../PLA
 | T14 | Data mod with a tech that sets resource 33: does an `Effects.xs` function run without the RMS? | U13 |
 | T15 | ~~Supply circles~~: abandoned 2026-10-14. The TC circle seen in game was its arrow-range indicator; inert and Caravanserai-shaped auras drew nothing on the TC or the Palace. Captions show supply state instead. | U9 |
 | T16 | **Passed 2026-10-14.** Palace (Wonder clone, slot 12, replaces the Wonder): no Wonder victory once task 120 is dropped; a second Palace cannot be placed while the first is under construction; an unfinished Palace does not act as the capital; the Palace can be rebuilt after it is destroyed. | U8 |
+| T17 | **Passed 2026-10-14.** Loaded-cart look: XS swaps the cart to a Loaded Supply Cart unit (Ox Wagon look) at the Palace and back on delivery (`xsRemoveUnit` + `xsCreateUnit`). Swap looks right, route continues, HP kept, no death sound, no extra units lost in statistics. Known cost: a selected cart is deselected at each swap (accepted). A carrying graphic on a trade task never showed. | U5 |
 
 ## Reports
 

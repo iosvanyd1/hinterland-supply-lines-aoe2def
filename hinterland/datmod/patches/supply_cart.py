@@ -3,10 +3,11 @@
 Clones the Trade Cart into every civ, trains it at the Town Center, and
 enables it with Castle Age. Values are first-pass tuning, see design section 9.
 
-Unverified (TECHNICAL_UNKNOWNS.md U4, U5): TC button slot, and whether the
-trade task can target a TC. By default the trade task is removed so the cart
-is a plain unit the XS handles; set EXPERIMENTAL_TRADE_TO_TC to try the
-native trade-path approach.
+Looks like the vanilla Ox Cart. A second unit, the Loaded Supply Cart, looks
+like the Ox Wagon; XS swaps a cart to it when it loads at the Palace and back
+when it delivers (playtest 2026-10-14: a carrying graphic on a trade task never
+showed, since XS moves carts with Move orders). Neither has a trade task.
+XS routes the carts (U5).
 """
 import logging
 
@@ -23,11 +24,13 @@ TRAIN_TIME = 40
 COST_FOOD = 50
 COST_WOOD = 100
 TC_BUTTON_ID = 10          # unverified: must be a free slot on the TC panel
-EXPERIMENTAL_TRADE_TO_TC = False
 
 # Look: the vanilla Ox Cart, so the Supply Cart is not mistaken for a Trade Cart.
 LOOK_UNIT = 1271           # OXCART (idle/walk/death graphics, icon 263)
 LOOK_CORPSE = 1272         # OXCART_D
+LOADED_LOOK_UNIT = 1273    # OXWAGON: the Loaded Supply Cart's look
+LOADED_LOOK_CORPSE = 1274  # OXWAGON_D
+LOADED_STRING_NAME = 5997  # "Supply Cart (Loaded)"; free in vanilla strings and dat
 
 # Strings: same vanilla pattern and reasoning as palace.py; base 5998.
 STRING_NAME = 5998
@@ -40,12 +43,20 @@ RES_WOOD = 1
 RES_GOLD = 3
 
 
-def _apply_look(unit, look) -> None:
+def _apply_look(unit, look, corpse: int) -> None:
     unit.standing_graphic = look.standing_graphic
     unit.dying_graphic = look.dying_graphic
     unit.dead_fish.walking_graphic = look.dead_fish.walking_graphic
     unit.icon_id = look.icon_id
-    unit.dead_unit_id = LOOK_CORPSE
+    unit.dead_unit_id = corpse
+
+
+def _configure_loaded(unit, new_id: int) -> None:
+    """The Loaded Supply Cart: same stats, Ox Wagon look, never trained."""
+    set_identity(unit, new_id)
+    unit.name = "SUPPLYCART_LOADED"
+    unit.language_dll_name = LOADED_STRING_NAME
+    unit.creatable.train_locations = []
 
 
 def _configure(unit, new_id: int) -> None:
@@ -69,30 +80,33 @@ def _configure(unit, new_id: int) -> None:
     costs[1].type, costs[1].amount, costs[1].flag = RES_WOOD, COST_WOOD, 1
     costs[2].type, costs[2].amount, costs[2].flag = -1, 0, 0
 
-    tasks = unit.bird.tasks
-    if EXPERIMENTAL_TRADE_TO_TC:
-        for task in tasks:
-            if task.action_type == vanilla.ACTION_TRADE:
-                task.unit_id = vanilla.TOWN_CENTER
-                task.class_id = -1
-        unit.bird.drop_sites = [vanilla.TOWN_CENTER]
-    else:
-        unit.bird.tasks = [t for t in tasks if t.action_type != vanilla.ACTION_TRADE]
+    unit.bird.tasks = [t for t in unit.bird.tasks if t.action_type != vanilla.ACTION_TRADE]
+    for i, task in enumerate(unit.bird.tasks):
+        task.id = i
 
 
 def apply(data: DatFile, new_ids: dict[str, int]) -> None:
     new_id = len(data.civs[0].units)
+    loaded_id = new_id + 1
     template = data.civs[0].units[vanilla.TRADE_CART]
     for civ in data.civs:
         source = civ.units[vanilla.TRADE_CART] or template
         cart = clone(source, data.version)
         _configure(cart, new_id)
-        _apply_look(cart, civ.units[LOOK_UNIT] or data.civs[0].units[LOOK_UNIT])
+        _apply_look(cart, civ.units[LOOK_UNIT] or data.civs[0].units[LOOK_UNIT], LOOK_CORPSE)
+        loaded = clone(cart, data.version)
+        _configure_loaded(loaded, loaded_id)
+        _apply_look(
+            loaded, civ.units[LOADED_LOOK_UNIT] or data.civs[0].units[LOADED_LOOK_UNIT], LOADED_LOOK_CORPSE
+        )
         civ.units.append(cart)
-    logging.info("Supply Cart cloned as unit %d in %d civs", new_id, len(data.civs))
+        civ.units.append(loaded)
+    logging.info("Supply Cart cloned as units %d (empty) and %d (loaded) in %d civs",
+                 new_id, loaded_id, len(data.civs))
 
     castle_age = data.techs[vanilla.CASTLE_AGE]
     data.effects[castle_age.effect_id].effect_commands.append(
         EffectCommand(type=vanilla.EFFECT_ENABLE_DISABLE_UNIT, a=new_id, b=1, c=-1, d=0.0)
     )
     new_ids["cSupplyCartId"] = new_id
+    new_ids["cLoadedSupplyCartId"] = loaded_id

@@ -3,6 +3,9 @@
 // "Build/Train" N+1000, tooltip N+21000 (the dat's help ID is N+100000).
 // Set in hinterland/datmod/patches/*.py.
 
+// Loaded Supply Cart (N = 5997; name only, never trained)
+5997 "Supply Cart (Loaded)"
+
 // Supply Cart (N = 5998)
 5998 "Supply Cart"
 6998 "Train Supply Cart"

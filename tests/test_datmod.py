@@ -98,7 +98,7 @@ def test_clones_are_their_own_base_unit(built):
 
     new_ids, out = built
     data = DatFile.parse(out)
-    for key in ("cSupplyCartId", "cPalaceId"):
+    for key in ("cSupplyCartId", "cLoadedSupplyCartId", "cPalaceId"):
         uid = new_ids[key]
         for civ in data.civs:
             unit = civ.units[uid]
@@ -114,3 +114,21 @@ def test_string_ids_follow_vanilla_pattern_and_exist():
         assert patch.STRING_NAME < 100000
         for sid in (patch.STRING_NAME, patch.STRING_CREATION, patch.STRING_HELP):
             assert f"\n{sid} " in strings
+
+
+def test_loaded_cart_is_ox_wagon_and_never_trained(built):
+    from genieutils.datfile import DatFile
+
+    from hinterland.datmod.patches import supply_cart
+
+    new_ids, out = built
+    data = DatFile.parse(out)
+    empty_id, loaded_id = new_ids["cSupplyCartId"], new_ids["cLoadedSupplyCartId"]
+    assert loaded_id == empty_id + 1
+    for civ in data.civs:
+        empty, loaded = civ.units[empty_id], civ.units[loaded_id]
+        assert loaded.standing_graphic == civ.units[supply_cart.LOADED_LOOK_UNIT].standing_graphic
+        assert loaded.creatable.train_locations == []
+        assert (loaded.id, loaded.copy_id, loaded.base_id) == (loaded_id, loaded_id, loaded_id)
+        for unit in (empty, loaded):
+            assert all(t.action_type != ids.ACTION_TRADE for t in unit.bird.tasks)
