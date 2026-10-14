@@ -47,6 +47,7 @@ Run in the Scenario Editor (Test button) unless noted. Record results in [../PLA
 | T15 | ~~Supply circles~~: abandoned 2026-10-14. The TC circle seen in game was its arrow-range indicator; inert and Caravanserai-shaped auras drew nothing on the TC or the Palace. Captions show supply state instead. | U9 |
 | T16 | **Passed 2026-10-14.** Palace (Wonder clone, slot 12, replaces the Wonder): no Wonder victory once task 120 is dropped; a second Palace cannot be placed while the first is under construction; an unfinished Palace does not act as the capital; the Palace can be rebuilt after it is destroyed. | U8 |
 | T17 | **Passed 2026-10-14.** Loaded-cart look: XS swaps the cart to a Loaded Supply Cart unit (Ox Wagon look) at the Palace and back on delivery (`xsRemoveUnit` + `xsCreateUnit`). Swap looks right, route continues, HP kept, no death sound, no extra units lost in statistics. Known cost: a selected cart is deselected at each swap (accepted). A carrying graphic on a trade task never showed. | U5 |
+| T18 | **Passed 2026-10-14.** `xsGetUnitProperty(id, cUnitBuildpoints) >= xsGetObjectAttribute(p, type, cTrainTime)` tells foundations from finished buildings (starting TC included). New buildings outside coverage start at 20 s once built; a TC's outpost goes dark at once when the TC is lost or runs dry and recovers when it is refilled; Palace loss gives a countdown. | U6 |
 
 ## Reports
 

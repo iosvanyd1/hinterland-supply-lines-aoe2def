@@ -18,7 +18,17 @@ int gBuildingIds = -1;
 int gBuildingSupply = -1;    // remaining seconds
 int gBuildingLocked = -1;    // 0/1
 int gBuildingIsTc = -1;      // 0/1; an active TC is itself a supply source
+int gBuildingType = -1;      // object ID, to read its build time
+int gBuildingReady = -1;     // 0 = under construction (no drain, no lock), 1 = finished
+int gBuildingCover = -1;     // last tick: cCoverNone / cCoverPalace / cCoverTc
 int gBuildingCount = 0;
+
+// What covers a building this tick. A TC-covered building belongs to that TC's
+// outpost: when the TC is lost or runs dry, the building is out of supply at once.
+// A Palace-covered building gets the grace countdown when the Palace falls.
+extern const int cCoverNone = 0;
+extern const int cCoverPalace = 1;
+extern const int cCoverTc = 2;
 
 // Tracked carts (parallel arrays). gCartLoaded: 1 = carrying supply.
 // gCartRoute: building the cart last delivered to; it shuttles there from the Palace.
@@ -48,9 +58,6 @@ int gTaskIds = -1;
 int gEmptyCarts = -1;
 int gLoadedCarts = -1;
 
-// Debug (cDebugSupply): nearest supply source seen by the last hlIsCovered call.
-float gDebugDist = -1.0;
-float gDebugRadius = -1.0;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -61,42 +68,36 @@ bool hlSupplyRulesOn(int playerId = -1) {
     return (xsPlayerAttribute(playerId, cAttributeCurrentAge) >= cAgeCastle);
 }
 
-void hlNoteSource(float d = 0.0, float radius = 0.0) {
-    if ((gDebugDist < 0.0) || (d - radius < gDebugDist - gDebugRadius)) {
-        gDebugDist = d;
-        gDebugRadius = radius;
-    }
-}
-
-// True if `pos` is inside the owner's Palace radius or, for anything but a TC,
-// inside the radius of one of the owner's active TCs. TCs do not chain: a TC is
+// What covers `pos`: the owner's Palace radius first, then (for anything but a
+// TC) the radius of one of the owner's active TCs. TCs do not chain: a TC is
 // active only through the Palace or its own supply (design section 11).
-bool hlIsCovered(int playerId = -1, vector pos = vector(0, 0, 0), bool isTc = false) {
-    gDebugDist = -1.0;
-    gDebugRadius = -1.0;
-    bool covered = false;
+int hlCoverType(int playerId = -1, vector pos = vector(0, 0, 0), bool isTc = false) {
     int palace = xsArrayGetInt(gPalaceIds, playerId);
-    if (palace >= 0) {
-        float dp = dist(xsGetUnitPosition(palace), pos);
-        hlNoteSource(dp, cPalaceRadius);
-        if (dp <= cPalaceRadius) {
-            covered = true;
-        }
+    if ((palace >= 0) && (dist(xsGetUnitPosition(palace), pos) <= cPalaceRadius)) {
+        return (cCoverPalace);
     }
     if (isTc) {
-        return (covered);
+        return (cCoverNone);
     }
     for (i = 0; < gSourceCount) {
         if (xsArrayGetInt(gSourceOwner, i) != playerId) {
             continue;
         }
-        float d = dist(xsArrayGetVector(gSourcePos, i), pos);
-        hlNoteSource(d, cTownCenterRadius);
-        if (d <= cTownCenterRadius) {
-            covered = true;
+        if (dist(xsArrayGetVector(gSourcePos, i), pos) <= cTownCenterRadius) {
+            return (cCoverTc);
         }
     }
-    return (covered);
+    return (cCoverNone);
+}
+
+// Construction finished: build points reached the type's build time.
+// TODO(test T18): assumes cUnitBuildpoints counts up to cTrainTime.
+bool hlIsBuilt(int index = -1) {
+    int id = xsArrayGetInt(gBuildingIds, index);
+    int owner = xsGetUnitOwner(id);
+    float points = xsGetUnitProperty(id, cUnitBuildpoints, owner);
+    float needed = xsGetObjectAttribute(owner, xsArrayGetInt(gBuildingType, index), cTrainTime, 0);
+    return (points >= needed);
 }
 
 int hlFindBuilding(int unitId = -1) {
@@ -175,14 +176,11 @@ void hlUpdateCaption(int index = -1, bool covered = false) {
     } else if (s <= 0) {
         text = "OUT OF SUPPLY";
     }
-    if (cDebugSupply) {
-        text = text + " [d " + gDebugDist + " r " + gDebugRadius + "]";
-    }
     xsSetUnitCaption(id, text);
 }
 
-// Active TCs this tick: inside their Palace radius, or with supply left.
-// Before Castle Age every TC is active.
+// Active TCs this tick: finished, and inside their Palace radius or with supply
+// left. Before Castle Age every finished TC is active.
 void hlRebuildSources() {
     gSourceCount = 0;
     for (i = 0; < gBuildingCount) {
@@ -191,6 +189,9 @@ void hlRebuildSources() {
         }
         if (xsArrayGetInt(gBuildingSupply, i) <= 0) {
             continue;
+        }
+        if (xsArrayGetInt(gBuildingReady, i) == 0) {
+            continue;   // an unfinished TC covers nothing
         }
         int id = xsArrayGetInt(gBuildingIds, i);
         if (xsDoesUnitExist(id) == false) {
@@ -211,6 +212,9 @@ void main() {
     gBuildingSupply = xsArrayCreateInt(cMaxTrackedBuildings, 0, "hlBuildingSupply");
     gBuildingLocked = xsArrayCreateInt(cMaxTrackedBuildings, 0, "hlBuildingLocked");
     gBuildingIsTc = xsArrayCreateInt(cMaxTrackedBuildings, 0, "hlBuildingIsTc");
+    gBuildingType = xsArrayCreateInt(cMaxTrackedBuildings, -1, "hlBuildingType");
+    gBuildingReady = xsArrayCreateInt(cMaxTrackedBuildings, 0, "hlBuildingReady");
+    gBuildingCover = xsArrayCreateInt(cMaxTrackedBuildings, 0, "hlBuildingCover");
     gCartIds = xsArrayCreateInt(cMaxTrackedCarts, -1, "hlCartIds");
     gCartLoaded = xsArrayCreateInt(cMaxTrackedCarts, 0, "hlCartLoaded");
     gCartRoute = xsArrayCreateInt(cMaxTrackedCarts, -1, "hlCartRoute");
@@ -271,7 +275,8 @@ rule hlTrackPalaces
     }
 }
 
-// Register new supply recipients. New ones start with a full window.
+// Register new supply recipients. New ones start with only cNewBuildingSupplySeconds
+// (no building-drop strategy); the countdown starts once construction finishes.
 rule hlRegisterBuildings
     active
     minInterval 5
@@ -302,9 +307,12 @@ rule hlRegisterBuildings
                     break;
                 }
                 xsArraySetInt(gBuildingIds, gBuildingCount, id);
-                xsArraySetInt(gBuildingSupply, gBuildingCount, cSupplyCapSeconds);
+                xsArraySetInt(gBuildingSupply, gBuildingCount, cNewBuildingSupplySeconds);
                 xsArraySetInt(gBuildingLocked, gBuildingCount, 0);
                 xsArraySetInt(gBuildingIsTc, gBuildingCount, 0);
+                xsArraySetInt(gBuildingType, gBuildingCount, objectId);
+                xsArraySetInt(gBuildingReady, gBuildingCount, 0);
+                xsArraySetInt(gBuildingCover, gBuildingCount, cCoverNone);
                 if (objectId == cTownCenterId) {
                     xsArraySetInt(gBuildingIsTc, gBuildingCount, 1);
                 }
@@ -331,21 +339,35 @@ rule hlSupplyTick
             xsArraySetInt(gBuildingSupply, i, xsArrayGetInt(gBuildingSupply, last));
             xsArraySetInt(gBuildingLocked, i, xsArrayGetInt(gBuildingLocked, last));
             xsArraySetInt(gBuildingIsTc, i, xsArrayGetInt(gBuildingIsTc, last));
+            xsArraySetInt(gBuildingType, i, xsArrayGetInt(gBuildingType, last));
+            xsArraySetInt(gBuildingReady, i, xsArrayGetInt(gBuildingReady, last));
+            xsArraySetInt(gBuildingCover, i, xsArrayGetInt(gBuildingCover, last));
             gBuildingCount--;
             continue;
         }
         int owner = xsGetUnitOwner(id);
         int s = xsArrayGetInt(gBuildingSupply, i);
-        bool covered = true;
+        if (xsArrayGetInt(gBuildingReady, i) == 0) {
+            if (hlIsBuilt(i) == false) {
+                i++;
+                continue;   // under construction: no drain, no lock, no caption
+            }
+            xsArraySetInt(gBuildingReady, i, 1);
+        }
+        int cover = cCoverPalace;   // before Castle Age everything counts as covered
         if (hlSupplyRulesOn(owner)) {
             bool isTc = (xsArrayGetInt(gBuildingIsTc, i) == 1);
-            covered = hlIsCovered(owner, xsGetUnitPosition(id), isTc);
+            cover = hlCoverType(owner, xsGetUnitPosition(id), isTc);
         }
+        bool covered = (cover != cCoverNone);
         if (covered) {
             s = cSupplyCapSeconds;
+        } else if (xsArrayGetInt(gBuildingCover, i) == cCoverTc) {
+            s = 0;      // its TC was lost or ran dry: the outpost goes dark at once
         } else if (s > 0) {
             s--;
         }
+        xsArraySetInt(gBuildingCover, i, cover);
         xsArraySetInt(gBuildingSupply, i, s);
 
         bool locked = (xsArrayGetInt(gBuildingLocked, i) == 1);
