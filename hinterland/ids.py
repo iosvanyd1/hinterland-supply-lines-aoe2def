@@ -11,8 +11,11 @@ TRADE_CART_FULL = 204
 # Buildings
 TOWN_CENTER = 109
 MARKET = 84
+WONDER = 276
+WONDER_VARIANTS = (276, 1368, 1369)   # all on build slot 12; only 276 is ever enabled in vanilla
 
 # Techs
+FEUDAL_AGE = 101          # dat names are off by one; go by ID
 CASTLE_AGE = 102          # dat names are off by one; go by ID
 HERESY = 439
 
@@ -22,6 +25,7 @@ EFFECT_ENABLE_DISABLE_UNIT = 2
 # Task / action types
 ACTION_TRADE = 111
 ACTION_AURA = 155
+ACTION_WONDER_VICTORY = 120   # AGE: "Generate Wonder Victory"
 
 # Unit class IDs
 CLASS_TRADE_CART = 19

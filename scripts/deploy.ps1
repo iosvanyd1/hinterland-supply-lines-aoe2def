@@ -51,4 +51,21 @@ if ($AlsoProfile) {
     Write-Host "Also copied XS + RMS into $common"
 }
 Write-Host "Deployed $ModName -> $dest ($Mode)"
+
+# Strings-only companion mod: the game loads modded strings at startup from
+# enabled mods only, and a data mod is enabled later in the lobby.
+$textSrc = Join-Path $repo "build\$ModName-Text"
+$textDest = Join-Path $profileDir "mods\local\$ModName-Text"
+if (Test-Path $textSrc) {
+    if (Test-Path $textDest) {
+        $item = Get-Item $textDest -Force
+        if ($item.LinkType) { $item.Delete() } else { Remove-Item $textDest -Recurse -Force }
+    }
+    if ($Mode -eq 'Link') {
+        New-Item -ItemType Junction -Path $textDest -Target $textSrc | Out-Null
+    } else {
+        Copy-Item $textSrc $textDest -Recurse
+    }
+    Write-Host "Deployed $ModName-Text -> $textDest ($Mode). Turn it On in Mods > Installed Mods."
+}
 Write-Host 'In game: Mods > My Mods > Import Local Mods (first time). Pick the mod in the lobby "Data Mod" dropdown.'

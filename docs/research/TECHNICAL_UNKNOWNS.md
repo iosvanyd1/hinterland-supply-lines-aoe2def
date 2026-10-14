@@ -16,7 +16,7 @@ Consolidated from the four research reports in this folder (researched 2026-10-1
 | U5 | Trade-Cart-style auto pathing capital → destination → capital | Open | Trade task is action type 111, with target object/class and drop sites in the .dat. No mod or doc shows trading with a non-Market. Experiment: `EXPERIMENTAL_TRADE_TO_TC` in the patch. Fallback: XS loop issuing move orders (`xsTaskUnits` / Task Object) between capital and destination. The fallback gives the same player-facing behaviour. | T6 |
 | U6 | Lock training AND research at one building | Open | No per-building API: every enable/disable is per player per type. Candidates: (a) `xsSetUnitProperty(id, cUnitSelectable, 0)` (scaffold stand-in; blocks new orders but also gather points/garrison); (b) swap for a data-mod "dark twin" with no buttons (`xsRemoveUnit` + `xsCreateUnit`, restore HP); (c) local technologies per building instance, if a local tech can remove buttons; (d) Stop/Freeze Object clears one building's queue (Sept 2026). | T7, T8 |
 | U7 | Detect a cart arriving at a building | Resolved | Poll cart positions each second (`xsGetPlayerUnitIds` + `xsGetUnitPosition` + `dist`). More robust: make carts garrison into the target, then `xsGetGarrisonedInUnitId`. | — |
-| U8 | "Make capital" button + cooldown | Test | Best: a dummy "charter" unit trained at the TC, so XS knows which TC by proximity, then removes it. A global tech can't tell which TC researched it. Cooldown: disable the train button per player (`cEnableObject`) and re-enable on a timer. Don't call `xsResearchTechnology` twice for the same tech and player: crash bug. | T9 |
+| U8 | ~~"Make capital" button + cooldown~~ | Superseded 2026-10-14 | The capital is now the Palace building (design section 11): one per player, rebuildable, no button or cooldown. | ~~T9~~ |
 | U9 | Supply UI: timers, status, minimap | Test | Per-building text: `xsSetUnitCaption` / Change Object Caption. Timers: `xsDisplayTimer` per player (max count unknown). Display Instructions: 3 panels. Minimap shape via .dat `minimap_mode`; distinct colour per unit is unknown. Enemy info: only what vision shows. Never drive logic from `xsUnsync*`. | T10 |
 | U10 | Death cause: killed vs converted vs Heresy | Test | Track cart IDs: still exists with a new owner = converted; gone = died. Heresy flag = resource 192 "Converted Units Die". Native gold-to-killer: task 161 "Unit refund" with work range > 0 (docs say the killer receives it). | T11 |
 | U11 | Multiplayer packaging | Resolved / Test | Data mod (cart unit, dark twins) + RMS with `#includeXS`; all logic in XS rules. Unranked lobbies only. Lobby prompts players to subscribe to the data mod. Known issues: XS is not saved in recorded games; nested XS `include` historically did not transfer (irrelevant when everything ships in the mod); whether the game lists RMS from inside a local mod is unverified (`deploy.ps1 -AlsoProfile` fallback). | T12 |
@@ -38,13 +38,14 @@ Run in the Scenario Editor (Test button) unless noted. Record results in [../PLA
 | T6 | With `EXPERIMENTAL_TRADE_TO_TC = True`: does the cart shuttle between own TC and a target? Gold generated? | U5 |
 | T7 | `cUnitSelectable = 0` on a Barracks: can the player still queue via hotkeys / select-all / control groups? | U6 |
 | T8 | Disable-then-reenable on a building with a 5-unit queue: what happens to the queue and resources, for each lock option (a–d)? | U6, U14 |
-| T9 | Charter unit at a secondary TC: does XS detect it within 1 s and pick the correct TC? | U8 |
+| T9 | ~~Charter unit at a secondary TC~~: superseded by the Palace (U8). | U8 |
 | T10 | Caption over a building: readable? Does it show to the enemy? Under fog? | U9 |
 | T11 | Kill / convert / convert-with-Heresy a cart: check owner change, `xsDoesUnitExist`, resources 20/154/240, task 161 gold | U10 |
 | T12 | Local mod only (no `-AlsoProfile`): is the map listed? 2-player LAN/lobby: does it sync? | U11 |
 | T13 | 4-player late game, 200 pop each: frame time with the aura + pool rules on vs off | U12 |
 | T14 | Data mod with a tech that sets resource 33: does an `Effects.xs` function run without the RMS? | U13 |
-| T15 | Supply-radius circle (inert TC aura, flag 6, 12 tiles; capital widened to 20 by `xsModifyUnitTasks`): does it draw for each setting of Options > Game > "Building and Aura range indicator"? Only when selected? Do enemies see it? Is the capital's circle bigger, and which chat line appears at start? | U9 |
+| T15 | ~~Supply circles~~: abandoned 2026-10-14. The TC circle seen in game was its arrow-range indicator; inert and Caravanserai-shaped auras drew nothing on the TC or the Palace. Captions show supply state instead. | U9 |
+| T16 | **Passed 2026-10-14.** Palace (Wonder clone, slot 12, replaces the Wonder): no Wonder victory once task 120 is dropped; a second Palace cannot be placed while the first is under construction; an unfinished Palace does not act as the capital; the Palace can be rebuilt after it is destroyed. | U8 |
 
 ## Reports
 

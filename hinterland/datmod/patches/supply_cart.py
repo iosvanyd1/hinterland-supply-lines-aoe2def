@@ -14,7 +14,7 @@ from genieutils.datfile import DatFile
 from genieutils.effect import EffectCommand
 
 from hinterland import ids as vanilla
-from hinterland.datmod.util import clone
+from hinterland.datmod.util import clone, set_identity
 
 NAME = "supply-cart"
 
@@ -29,13 +29,11 @@ EXPERIMENTAL_TRADE_TO_TC = False
 LOOK_UNIT = 1271           # OXCART (idle/walk/death graphics, icon 263)
 LOOK_CORPSE = 1272         # OXCART_D
 
-# Strings live in src/strings/en/key-value-modded-strings-utf8.txt.
-STRING_NAME = 31750001
-STRING_CREATION = 31750002
-STRING_HELP = 31750003
-# Unverified: the game shows help string (language_dll_help - 79000), as the Trade
-# Cart's 105100 -> 26100 suggests.
-HELP_ID_OFFSET = 79000
+# Strings: same vanilla pattern and reasoning as palace.py; base 5998.
+STRING_NAME = 5998
+STRING_CREATION = STRING_NAME + 1000
+STRING_HELP = STRING_NAME + 21000          # the string the tooltip shows
+HELP_ID_OFFSET = 79000                     # language_dll_help = STRING_HELP + 79000
 
 RES_FOOD = 0
 RES_WOOD = 1
@@ -51,7 +49,7 @@ def _apply_look(unit, look) -> None:
 
 
 def _configure(unit, new_id: int) -> None:
-    unit.id = new_id
+    set_identity(unit, new_id)
     unit.name = "SUPPLYCART"
     unit.language_dll_name = STRING_NAME
     unit.language_dll_creation = STRING_CREATION

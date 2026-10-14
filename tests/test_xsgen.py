@@ -10,7 +10,7 @@ def test_render_defaults_match_committed_placeholder():
 def test_render_uses_new_ids():
     out = xsgen.render({"cSupplyCartId": 2100})
     assert "extern const int cSupplyCartId = 2100;" in out
-    assert "extern const int cCapitalCharterId = -1;" in out
+    assert "extern const int cPalaceId = -1;" in out
 
 
 def test_render_rejects_unknown_constant():

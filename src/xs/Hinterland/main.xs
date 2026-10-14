@@ -2,8 +2,8 @@
 // Loaded by the RMS (`#includeXS Hinterland\main.xs`) or by a scenario
 // (Map tab > Script Filename = Hinterland\main).
 //
-// Status: slice 2 skeleton (single-building supply window, generalised to
-// arrays). Everything marked TODO(test) depends on an in-game test listed in
+// Status: slices 1-3 (supply window, carts, Palace network; design sections 3,
+// 4, 11). Everything marked TODO(test) depends on an in-game test listed in
 // docs/research/TECHNICAL_UNKNOWNS.md.
 
 include "Hinterland\constants.xs";
@@ -12,21 +12,31 @@ include "Hinterland\constants.xs";
 // State
 // ---------------------------------------------------------------------------
 
-// Tracked forward buildings (parallel arrays, gBuildingCount used entries).
+// Tracked supply recipients: forward buildings and every TC (parallel arrays,
+// gBuildingCount used entries).
 int gBuildingIds = -1;
 int gBuildingSupply = -1;    // remaining seconds
 int gBuildingLocked = -1;    // 0/1
+int gBuildingIsTc = -1;      // 0/1; an active TC is itself a supply source
 int gBuildingCount = 0;
 
 // Tracked carts (parallel arrays). gCartLoaded: 1 = carrying supply.
-// gCartRoute: building the cart last delivered to; it shuttles there from the capital.
+// gCartRoute: building the cart last delivered to; it shuttles there from the Palace.
 int gCartIds = -1;
 int gCartLoaded = -1;
 int gCartRoute = -1;
+int gCartLastPos = -1;   // position one tick ago, to tell a stopped cart from a passing one
 int gCartCount = 0;
 
-// Capital TC unit ID per player (index = player ID).
-int gCapitalIds = -1;
+// Palace (the capital) per player, index = player ID; -1 = none.
+int gPalaceIds = -1;
+// Last Palace build state XS set per player: -1 unknown, 0 disabled, 1 enabled.
+int gPalaceBuildable = -1;
+
+// Active TCs this tick (rebuilt each hlSupplyTick): they cover buildings around them.
+int gSourcePos = -1;
+int gSourceOwner = -1;
+int gSourceCount = 0;
 
 // Scratch array reused by xsGetPlayerUnitIds.
 int gScratch = -1;
@@ -34,54 +44,52 @@ int gScratch = -1;
 // One-element array for xsTaskUnits.
 int gTaskIds = -1;
 
+// Debug (cDebugSupply): nearest supply source seen by the last hlIsCovered call.
+float gDebugDist = -1.0;
+float gDebugRadius = -1.0;
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-bool hlIsForwardBuildingType(int objectId = -1) {
-    if (objectId == cBarracksId) { return (true); }
-    if (objectId == cArcheryRangeId) { return (true); }
-    if (objectId == cStableId) { return (true); }
-    if (objectId == cSiegeWorkshopId) { return (true); }
-    if (objectId == cCastleId) { return (true); }
-    if (objectId == cMonasteryId) { return (true); }
-    if (objectId == cDockId) { return (true); }
-    if (objectId == cMarketId) { return (true); }
-    if (objectId == cBlacksmithId) { return (true); }
-    if (objectId == cUniversityId) { return (true); }
-    return (false);
+// Supply rules start at Castle Age (design section 3); Dark/Feudal play as normal.
+bool hlSupplyRulesOn(int playerId = -1) {
+    return (xsPlayerAttribute(playerId, cAttributeCurrentAge) >= cAgeCastle);
 }
 
-// Debug (cDebugSupply): nearest TC seen by the last hlIsCoveredByTc call.
-float gDebugDist = -1.0;      // dist() to that TC
-float gDebugDistXY = -1.0;    // hand-computed x/y distance, to cross-check dist()
-float gDebugRadius = -1.0;
+void hlNoteSource(float d = 0.0, float radius = 0.0) {
+    if ((gDebugDist < 0.0) || (d - radius < gDebugDist - gDebugRadius)) {
+        gDebugDist = d;
+        gDebugRadius = radius;
+    }
+}
 
-// True if `pos` is inside the radius of any TC owned by `playerId`.
-bool hlIsCoveredByTc(int playerId = -1, vector pos = vector(0, 0, 0)) {
-    int tcs = xsGetPlayerUnitIds(playerId, cTownCenterId, gScratch);
-    int n = xsArrayGetSize(tcs);
-    int capital = xsArrayGetInt(gCapitalIds, playerId);
+// True if `pos` is inside the owner's Palace radius or, for anything but a TC,
+// inside the radius of one of the owner's active TCs. TCs do not chain: a TC is
+// active only through the Palace or its own supply (design section 11).
+bool hlIsCovered(int playerId = -1, vector pos = vector(0, 0, 0), bool isTc = false) {
+    gDebugDist = -1.0;
+    gDebugRadius = -1.0;
     bool covered = false;
-    float bestMargin = 9999.0;
-    for (i = 0; < n) {
-        int tc = xsArrayGetInt(tcs, i);
-        float radius = cTownCenterRadius;
-        if (tc == capital) {
-            radius = cCapitalRadius;
-        }
-        vector tcPos = xsGetUnitPosition(tc);
-        float d = dist(tcPos, pos);
-        if (d <= radius) {
+    int palace = xsArrayGetInt(gPalaceIds, playerId);
+    if (palace >= 0) {
+        float dp = dist(xsGetUnitPosition(palace), pos);
+        hlNoteSource(dp, cPalaceRadius);
+        if (dp <= cPalaceRadius) {
             covered = true;
         }
-        if (d - radius < bestMargin) {
-            bestMargin = d - radius;
-            float dx = xsVectorGetX(tcPos) - xsVectorGetX(pos);
-            float dy = xsVectorGetY(tcPos) - xsVectorGetY(pos);
-            gDebugDist = d;
-            gDebugDistXY = sqrt(dx * dx + dy * dy);
-            gDebugRadius = radius;
+    }
+    if (isTc) {
+        return (covered);
+    }
+    for (i = 0; < gSourceCount) {
+        if (xsArrayGetInt(gSourceOwner, i) != playerId) {
+            continue;
+        }
+        float d = dist(xsArrayGetVector(gSourcePos, i), pos);
+        hlNoteSource(d, cTownCenterRadius);
+        if (d <= cTownCenterRadius) {
+            covered = true;
         }
     }
     return (covered);
@@ -105,16 +113,13 @@ int hlFindCart(int unitId = -1) {
     return (-1);
 }
 
-// Lock or unlock training and research at ONE building.
-// TODO(test): no per-building API exists. Current stand-in makes the building
-// unselectable (no new queue entries). Candidate replacement: swap for a
-// data-mod "dark twin" with no train/research buttons. See TECHNICAL_UNKNOWNS.md U6.
+// Lock or unlock training and research at ONE building (TCs included).
+// Unselectable = no new queue entries (U6, T7 passed). Locking also cancels the
+// queue: xsTaskUnits(Stop) + xsStopUnit clears it and the engine refunds
+// (U14, T8 passed 2026-10-14; which of the two calls does it is untested).
 void hlSetBuildingLocked(int index = -1, bool locked = false) {
     int id = xsArrayGetInt(gBuildingIds, index);
     if (locked) {
-        // Out of supply cancels the queue (decision 2026-10-14, U14). Playtest
-        // 2026-10-14: xsStopUnit alone did not clear it; with xsTaskUnits(Stop) added
-        // the queue clears and the engine refunds. Which call does it is untested.
         xsArraySetInt(gTaskIds, 0, id);
         xsTaskUnits(gTaskIds, cActionTypeStop, vector(-1, -1, -1), -1, false, false, false, -1);
         xsStopUnit(id);
@@ -126,14 +131,13 @@ void hlSetBuildingLocked(int index = -1, bool locked = false) {
     }
 }
 
-// Order one cart to walk to a unit (the capital or its route building).
+// Order one cart to walk to a unit (the Palace or its route building).
 void hlMoveCart(int cart = -1, int target = -1) {
     xsArraySetInt(gTaskIds, 0, cart);
     xsTaskUnits(gTaskIds, cActionTypeMove, xsGetUnitPosition(target), -1, false, false, false, -1);
 }
 
-// Covered buildings show no caption. TODO(test): unverified that an empty
-// string clears the caption (xs-api.md documents only that the function exists).
+// Covered buildings show no caption.
 void hlUpdateCaption(int index = -1, bool covered = false) {
     int id = xsArrayGetInt(gBuildingIds, index);
     int s = xsArrayGetInt(gBuildingSupply, index);
@@ -144,34 +148,30 @@ void hlUpdateCaption(int index = -1, bool covered = false) {
         text = "OUT OF SUPPLY";
     }
     if (cDebugSupply) {
-        text = text + " [d " + gDebugDist + " xy " + gDebugDistXY + " r " + gDebugRadius + "]";
+        text = text + " [d " + gDebugDist + " r " + gDebugRadius + "]";
     }
     xsSetUnitCaption(id, text);
 }
 
-// Widen one TC's supply-radius circle (inert aura added by the data patch
-// supply_radius.py, found by its 0 value) to cCapitalRadius.
-// TODO(test T15): xsModifyUnitTasks per unit is documented but untested;
-// assumes xsUnitTaskAmount loads task `i` into the xsGetTaskAmount buffer and
-// that taskId is the task's index.
-void hlSetCapitalAura(int tcId = -1) {
-    int n = xsGetUnitTaskCount(tcId);
-    for (i = 0; < n) {
-        if (xsUnitTaskAmount(tcId, i) == false) {
+// Active TCs this tick: inside their Palace radius, or with supply left.
+// Before Castle Age every TC is active.
+void hlRebuildSources() {
+    gSourceCount = 0;
+    for (i = 0; < gBuildingCount) {
+        if (xsArrayGetInt(gBuildingIsTc, i) == 0) {
             continue;
         }
-        if (xsGetTaskAmount(cTaskAttrTaskType) != cTaskTypeAura) {
+        if (xsArrayGetInt(gBuildingSupply, i) <= 0) {
             continue;
         }
-        if (xsGetTaskAmount(cTaskAttrWorkValue1) != 0.0) {
+        int id = xsArrayGetInt(gBuildingIds, i);
+        if (xsDoesUnitExist(id) == false) {
             continue;
         }
-        xsTaskAmount(cTaskAttrWorkRange, cCapitalRadius);
-        xsModifyUnitTasks(tcId, i, true);
-        xsChatData("Hinterland: capital radius set on task " + i, i);
-        return;
+        xsArraySetVector(gSourcePos, gSourceCount, xsGetUnitPosition(id));
+        xsArraySetInt(gSourceOwner, gSourceCount, xsGetUnitOwner(id));
+        gSourceCount++;
     }
-    xsChatData("Hinterland: supply-radius aura not found on TC " + tcId + ", tasks " + n, tcId);
 }
 
 // ---------------------------------------------------------------------------
@@ -182,10 +182,15 @@ void main() {
     gBuildingIds = xsArrayCreateInt(cMaxTrackedBuildings, -1, "hlBuildingIds");
     gBuildingSupply = xsArrayCreateInt(cMaxTrackedBuildings, 0, "hlBuildingSupply");
     gBuildingLocked = xsArrayCreateInt(cMaxTrackedBuildings, 0, "hlBuildingLocked");
+    gBuildingIsTc = xsArrayCreateInt(cMaxTrackedBuildings, 0, "hlBuildingIsTc");
     gCartIds = xsArrayCreateInt(cMaxTrackedCarts, -1, "hlCartIds");
     gCartLoaded = xsArrayCreateInt(cMaxTrackedCarts, 0, "hlCartLoaded");
     gCartRoute = xsArrayCreateInt(cMaxTrackedCarts, -1, "hlCartRoute");
-    gCapitalIds = xsArrayCreateInt(cMaxPlayers, -1, "hlCapitalIds");
+    gCartLastPos = xsArrayCreateVector(cMaxTrackedCarts, vector(-1, -1, -1), "hlCartLastPos");
+    gPalaceIds = xsArrayCreateInt(cMaxPlayers, -1, "hlPalaceIds");
+    gPalaceBuildable = xsArrayCreateInt(cMaxPlayers, -1, "hlPalaceBuildable");
+    gSourcePos = xsArrayCreateVector(cMaxTrackedBuildings, vector(-1, -1, -1), "hlSourcePos");
+    gSourceOwner = xsArrayCreateInt(cMaxTrackedBuildings, -1, "hlSourceOwner");
     gScratch = xsArrayCreateInt(1, -1, "hlScratch");
     gTaskIds = xsArrayCreateInt(1, -1, "hlTaskIds");
 }
@@ -194,32 +199,55 @@ void main() {
 // Rules
 // ---------------------------------------------------------------------------
 
-// Capital = first TC found per player until "make capital" exists (slice 3).
-rule hlAssignCapitals
+// Find each player's Palace and allow building one only while they have none
+// (one per player, rebuildable; design section 10). Feudal Age enables it in
+// the data; XS touches it only to block a second one and to lift that block.
+// Playtest 2026-10-14: with XS also disabling it before Feudal Age, villagers
+// never got the button, so XS no longer acts before a Palace exists.
+// TODO(test T16): does xsGetPlayerUnitIds list foundations (so a second Palace
+// cannot be placed while the first is under construction)? Does an unfinished
+// Palace already act as the capital? Does cAttributeEnable lift the block?
+rule hlTrackPalaces
     active
-    minInterval 2
-    maxInterval 2
+    minInterval 1
+    maxInterval 1
 {
+    if (cPalaceId < 0) {
+        return;
+    }
     for (p = 1; < xsGetNumPlayers()) {
-        int current = xsArrayGetInt(gCapitalIds, p);
-        if ((current >= 0) && xsDoesUnitExist(current)) {
-            continue;
+        int palaces = xsGetPlayerUnitIds(p, cPalaceId, gScratch);
+        int n = xsArrayGetSize(palaces);
+        int palace = -1;
+        if (n > 0) {
+            palace = xsArrayGetInt(palaces, 0);
         }
-        int tcs = xsGetPlayerUnitIds(p, cTownCenterId, gScratch);
-        if (xsArrayGetSize(tcs) > 0) {
-            xsArraySetInt(gCapitalIds, p, xsArrayGetInt(tcs, 0));
-            hlSetCapitalAura(xsArrayGetInt(tcs, 0));
+        xsArraySetInt(gPalaceIds, p, palace);
+
+        int state = xsArrayGetInt(gPalaceBuildable, p);
+        if ((n > 0) && (state != 0)) {
+            xsEffectAmount(cEnableObject, cPalaceId, cAttributeDisable, 0, p);
+            xsArraySetInt(gPalaceBuildable, p, 0);
+            if (cDebugSupply) {
+                xsChatData("Hinterland: Palace building blocked for player " + p, palace);
+            }
+        } else if ((n == 0) && (state == 0)) {
+            xsEffectAmount(cEnableObject, cPalaceId, cAttributeEnable, 0, p);
+            xsArraySetInt(gPalaceBuildable, p, 1);
+            if (cDebugSupply) {
+                xsChatData("Hinterland: Palace building allowed again for player " + p, p);
+            }
         }
     }
 }
 
-// Register new forward buildings. New buildings start with a full window.
+// Register new supply recipients. New ones start with a full window.
 rule hlRegisterBuildings
     active
     minInterval 5
     maxInterval 5
 {
-    int types = 10;
+    int types = 11;
     for (p = 1; < xsGetNumPlayers()) {
         for (t = 0; < types) {
             int objectId = cBarracksId;
@@ -232,6 +260,7 @@ rule hlRegisterBuildings
             if (t == 7) { objectId = cMarketId; }
             if (t == 8) { objectId = cBlacksmithId; }
             if (t == 9) { objectId = cUniversityId; }
+            if (t == 10) { objectId = cTownCenterId; }
             int ids = xsGetPlayerUnitIds(p, objectId, gScratch);
             int n = xsArrayGetSize(ids);
             for (i = 0; < n) {
@@ -245,18 +274,23 @@ rule hlRegisterBuildings
                 xsArraySetInt(gBuildingIds, gBuildingCount, id);
                 xsArraySetInt(gBuildingSupply, gBuildingCount, cSupplyCapSeconds);
                 xsArraySetInt(gBuildingLocked, gBuildingCount, 0);
+                xsArraySetInt(gBuildingIsTc, gBuildingCount, 0);
+                if (objectId == cTownCenterId) {
+                    xsArraySetInt(gBuildingIsTc, gBuildingCount, 1);
+                }
                 gBuildingCount++;
             }
         }
     }
 }
 
-// Drain 1s per second outside TC coverage; refill inside; lock at 0.
+// From Castle Age: drain 1s per second outside coverage, refill inside, lock at 0.
 rule hlSupplyTick
     active
     minInterval 1
     maxInterval 1
 {
+    hlRebuildSources();
     int i = 0;
     while (i < gBuildingCount) {
         int id = xsArrayGetInt(gBuildingIds, i);
@@ -266,12 +300,17 @@ rule hlSupplyTick
             xsArraySetInt(gBuildingIds, i, xsArrayGetInt(gBuildingIds, last));
             xsArraySetInt(gBuildingSupply, i, xsArrayGetInt(gBuildingSupply, last));
             xsArraySetInt(gBuildingLocked, i, xsArrayGetInt(gBuildingLocked, last));
+            xsArraySetInt(gBuildingIsTc, i, xsArrayGetInt(gBuildingIsTc, last));
             gBuildingCount--;
             continue;
         }
         int owner = xsGetUnitOwner(id);
         int s = xsArrayGetInt(gBuildingSupply, i);
-        bool covered = hlIsCoveredByTc(owner, xsGetUnitPosition(id));
+        bool covered = true;
+        if (hlSupplyRulesOn(owner)) {
+            bool isTc = (xsArrayGetInt(gBuildingIsTc, i) == 1);
+            covered = hlIsCovered(owner, xsGetUnitPosition(id), isTc);
+        }
         if (covered) {
             s = cSupplyCapSeconds;
         } else if (s > 0) {
@@ -285,15 +324,17 @@ rule hlSupplyTick
         } else if ((s > 0) && locked) {
             hlSetBuildingLocked(i, false);
         }
-        hlUpdateCaption(i, covered);
+        if (hlSupplyRulesOn(owner)) {
+            hlUpdateCaption(i, covered);
+        }
         i++;
     }
 }
 
-// Cart logistics: load at capital, deliver to the nearest forward building in range.
-// Load at the capital, deliver to the nearest non-full forward building in range.
-// A cart's first delivery sets its route; after that XS shuttles it between the
-// capital and that building with Move orders (U5 fallback to the trade task).
+// Load at the Palace, deliver to the nearest non-full recipient where the cart
+// stopped. A delivery sets the cart's route; XS then shuttles it between the
+// Palace and that building with Move orders (U5 fallback to the trade task).
+// Without a Palace, carts already loaded still deliver; they just cannot reload.
 rule hlCartLogistics
     active
     minInterval 1
@@ -305,7 +346,7 @@ rule hlCartLogistics
     for (p = 1; < xsGetNumPlayers()) {
         int carts = xsGetPlayerUnitIds(p, cSupplyCartId, gScratch);
         int n = xsArrayGetSize(carts);
-        int capital = xsArrayGetInt(gCapitalIds, p);
+        int palace = xsArrayGetInt(gPalaceIds, p);
         for (c = 0; < n) {
             int cart = xsArrayGetInt(carts, c);
             int ci = hlFindCart(cart);
@@ -315,17 +356,22 @@ rule hlCartLogistics
                 }
                 ci = gCartCount;
                 xsArraySetInt(gCartIds, ci, cart);
-                xsArraySetInt(gCartLoaded, ci, 1);   // trained at the capital = loaded
+                xsArraySetInt(gCartLoaded, ci, 0);   // trained empty: load at the Palace
                 xsArraySetInt(gCartRoute, ci, -1);
+                xsArraySetVector(gCartLastPos, ci, vector(-1, -1, -1));
                 gCartCount++;
             }
             vector cartPos = xsGetUnitPosition(cart);
+            bool stopped = (dist(cartPos, xsArrayGetVector(gCartLastPos, ci)) < cCartStoppedEpsilon);
+            xsArraySetVector(gCartLastPos, ci, cartPos);
+
             if (xsArrayGetInt(gCartLoaded, ci) == 0) {
-                float toCapital = -1.0;
-                if (capital >= 0) {
-                    toCapital = dist(cartPos, xsGetUnitPosition(capital));
+                if (palace < 0) {
+                    xsSetUnitCaption(cart, "Empty: no Palace");
+                    continue;
                 }
-                if ((capital >= 0) && (toCapital <= cCartDeliveryRange + 2.0)) {
+                float toPalace = dist(cartPos, xsGetUnitPosition(palace));
+                if (toPalace <= cCartLoadRange) {
                     xsArraySetInt(gCartLoaded, ci, 1);
                     int route = xsArrayGetInt(gCartRoute, ci);
                     if ((route >= 0) && xsDoesUnitExist(route) && (xsGetUnitOwner(route) == p)) {
@@ -333,19 +379,24 @@ rule hlCartLogistics
                     } else {
                         xsArraySetInt(gCartRoute, ci, -1);
                     }
+                    continue;
                 }
-                string emptyText = "Empty: return to capital";
+                string emptyText = "Empty: return to Palace";
                 if (cDebugSupply) {
-                    emptyText = emptyText + " [cap " + capital + " d " + toCapital + "]";
+                    emptyText = emptyText + " [d " + toPalace + "]";
                 }
                 xsSetUnitCaption(cart, emptyText);
                 continue;
             }
+
             string loadedText = "Loaded";
-            if (cDebugSupply) {
-                loadedText = loadedText + " [tracked " + gBuildingCount + "]";
-            }
             xsSetUnitCaption(cart, loadedText);
+            // Unload only where the cart stopped: the building the player (or the
+            // route) sent it to. Carts driving past other buildings keep their load.
+            // Of the buildings in range, the nearest non-full one takes the load;
+            // full ones (every covered building) never do.
+            int target = -1;
+            float targetDist = 9999.0;
             for (b = 0; < gBuildingCount) {
                 int building = xsArrayGetInt(gBuildingIds, b);
                 if (xsGetUnitOwner(building) != p) {
@@ -355,27 +406,26 @@ rule hlCartLogistics
                 if (cDebugSupply && (toBuilding < 10.0)) {
                     xsSetUnitCaption(cart, loadedText + " [near " + building + " d " + toBuilding + "]");
                 }
-                if (toBuilding > cCartDeliveryRange) {
+                if ((toBuilding > cCartDeliveryRange) || (toBuilding >= targetDist)) {
                     continue;
                 }
-                // Full buildings (including every TC-covered one) do not take the
-                // load; otherwise carts unload into buildings next to the capital.
                 if (xsArrayGetInt(gBuildingSupply, b) >= cSupplyCapSeconds) {
                     continue;
                 }
-                int s = xsArrayGetInt(gBuildingSupply, b) + cSupplyRefuelSeconds;
+                target = b;
+                targetDist = toBuilding;
+            }
+            if (stopped && (target >= 0)) {
+                int s = xsArrayGetInt(gBuildingSupply, target) + cSupplyRefuelSeconds;
                 if (s > cSupplyCapSeconds) {
                     s = cSupplyCapSeconds;
                 }
-                xsArraySetInt(gBuildingSupply, b, s);
+                xsArraySetInt(gBuildingSupply, target, s);
                 xsArraySetInt(gCartLoaded, ci, 0);
-                // First delivery sets the route; the cart now shuttles like a Trade
-                // Cart (design section 3). TODO(test): xsTaskUnits Move on carts.
-                xsArraySetInt(gCartRoute, ci, building);
-                if (capital >= 0) {
-                    hlMoveCart(cart, capital);
+                xsArraySetInt(gCartRoute, ci, xsArrayGetInt(gBuildingIds, target));
+                if (palace >= 0) {
+                    hlMoveCart(cart, palace);
                 }
-                break;
             }
         }
     }

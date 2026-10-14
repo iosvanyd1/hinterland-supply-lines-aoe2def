@@ -1,4 +1,9 @@
-"""Assemble build/<ModName>/ mirroring the game's resources/_common layout."""
+"""Assemble build/<ModName>/ mirroring the game's resources/_common layout.
+
+Also assembles build/<ModName>-Text/, a strings-only mod. The game loads modded
+strings at startup from enabled mods only; a data mod is enabled later, in the
+lobby, so its own strings file is never read (playtest 2026-10-14).
+"""
 import json
 import logging
 import shutil
@@ -39,15 +44,33 @@ def assemble(mod: ModInfo, paths: GamePaths | None, with_dat: bool) -> Path:
         # since IDs like len(units) shift when a game patch adds units.
         xsgen.write(new_ids, common / "xs" / xsgen.GENERATED_IDS.relative_to(SRC_XS))
     shutil.copytree(SRC_RMS, common / "random-map-scripts")
+    _write_info(root, mod.author, mod.description, f"{mod.title} v{mod.version}")
+    logging.info("Assembled %s", root)
+    assemble_text_mod(mod)
+    return root
+
+
+def text_mod_root(mod: ModInfo) -> Path:
+    return BUILD_DIR / f"{mod.name}-Text"
+
+
+def assemble_text_mod(mod: ModInfo) -> Path:
+    root = text_mod_root(mod)
+    if root.exists():
+        shutil.rmtree(root)
     for lang_dir in SRC_STRINGS.iterdir():
         shutil.copytree(lang_dir, root / "resources" / lang_dir.name / "strings" / "key-value")
-
-    info = {
-        "Author": mod.author,
-        "CacheStatus": 0,
-        "Description": mod.description,
-        "Title": f"{mod.title} v{mod.version}",
-    }
-    (root / "info.json").write_text(json.dumps(info, indent=2), encoding="utf-8")
+    _write_info(
+        root,
+        mod.author,
+        f"Tooltips for {mod.title}. Enable it (On) alongside the data mod.",
+        f"{mod.title} - Text v{mod.version}",
+    )
     logging.info("Assembled %s", root)
     return root
+
+
+def _write_info(root: Path, author: str, description: str, title: str) -> None:
+    info = {"Author": author, "CacheStatus": 0, "Description": description, "Title": title}
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "info.json").write_text(json.dumps(info, indent=2), encoding="utf-8")

@@ -3,4 +3,4 @@
 // skips cart logic while cSupplyCartId < 0.
 
 extern const int cSupplyCartId = -1;
-extern const int cCapitalCharterId = -1;
+extern const int cPalaceId = -1;

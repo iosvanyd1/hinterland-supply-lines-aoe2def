@@ -84,6 +84,8 @@ Notes:
 
 **First time:** Mods → My Mods → **Import Local Mods**. Data mods are not switched on with a checkbox; you pick one in the game setup screen.
 
+The build makes two mods. `HinterlandSupplyLines` is the data mod (gear icon, no checkbox; pick it in the lobby). `HinterlandSupplyLines-Text` holds the tooltips: switch it **On** in Installed Mods, then restart the game. The game loads mod strings at startup from enabled mods only, and a data mod is only enabled later in the lobby, so the data mod's own strings are never read. New string IDs must follow the vanilla unit pattern (name N < 100000, "Build" N+1000, tooltip N+21000, dat help ID N+100000); IDs in the millions never show.
+
 ### Fast loop: Scenario Editor (XS logic)
 1. Editor → new scenario, small map. Place a TC, a Barracks far from it, a few units.
 2. Map tab → **Script Filename** = `HinterlandSupplyLines` (no `.xs`). This needs `deploy.ps1 -AlsoProfile`.

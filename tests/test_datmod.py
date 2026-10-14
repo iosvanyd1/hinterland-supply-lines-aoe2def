@@ -37,27 +37,6 @@ def test_castle_age_enables_cart(built):
     assert any(c.type == 2 and c.a == new_ids["cSupplyCartId"] and c.b == 1 for c in commands)
 
 
-def test_tc_has_visible_supply_radius_aura(built):
-    from genieutils.datfile import DatFile
-
-    from hinterland.datmod.patches import supply_radius
-
-    _, out = built
-    data = DatFile.parse(out)
-    for civ in data.civs:
-        tc = civ.units[ids.TOWN_CENTER]
-        if tc is None:
-            continue
-        auras = [
-            t for t in tc.bird.tasks
-            if t.action_type == ids.ACTION_AURA and t.work_value_1 == supply_radius.AURA_VALUE
-        ]
-        assert len(auras) == 1
-        assert auras[0].work_range == supply_radius.TC_SUPPLY_RADIUS
-        assert auras[0].combat_level_flag & supply_radius.FLAG_VISIBLE
-        assert auras[0].id == tc.bird.tasks.index(auras[0])
-
-
 def test_supply_cart_strings_and_look(built):
     from genieutils.datfile import DatFile
 
@@ -72,5 +51,66 @@ def test_supply_cart_strings_and_look(built):
     assert cart.language_dll_name == supply_cart.STRING_NAME
 
     strings = (assemble.SRC_STRINGS / "en" / "key-value-modded-strings-utf8.txt").read_text(encoding="utf-8")
-    for sid in (supply_cart.STRING_NAME, supply_cart.STRING_CREATION, supply_cart.STRING_HELP):
-        assert f"\n{sid} " in strings
+    assert f"\n{supply_cart.STRING_HELP} " in strings
+
+
+def test_palace_cloned_from_wonder_and_enabled_in_feudal(built):
+    from genieutils.datfile import DatFile
+
+    from hinterland.datmod.patches import palace
+
+    new_ids, out = built
+    data = DatFile.parse(out)
+    palace_id = new_ids["cPalaceId"]
+    assert palace_id != new_ids["cSupplyCartId"]
+    for civ in data.civs:
+        unit = civ.units[palace_id]
+        assert unit.name == "PALACE"
+        assert unit.standing_graphic == civ.units[ids.WONDER].standing_graphic
+        assert unit.creatable.train_locations[0].button_id == palace.BUILD_BUTTON_ID
+    commands = data.effects[data.techs[ids.FEUDAL_AGE].effect_id].effect_commands
+    assert any(c.type == 2 and c.a == palace_id and c.b == 1 for c in commands)
+
+    from hinterland import SRC_STRINGS
+
+    strings = (SRC_STRINGS / "en" / "key-value-modded-strings-utf8.txt").read_text(encoding="utf-8")
+    assert f"\n{palace.STRING_HELP} " in strings
+    for civ in data.civs:
+        unit = civ.units[palace_id]
+        assert all(t.action_type != ids.ACTION_WONDER_VICTORY for t in unit.bird.tasks)
+        assert unit.bird.default_task_id == -1
+        for wonder_id in ids.WONDER_VARIANTS:
+            assert civ.units[wonder_id].creatable.train_locations == []
+
+
+def test_wonder_is_never_enabled(built):
+    from genieutils.datfile import DatFile
+
+    _, out = built
+    data = DatFile.parse(out)
+    for effect in data.effects:
+        for c in effect.effect_commands:
+            assert not (c.type == 2 and c.a == ids.WONDER and c.b == 1), effect.name
+
+
+def test_clones_are_their_own_base_unit(built):
+    from genieutils.datfile import DatFile
+
+    new_ids, out = built
+    data = DatFile.parse(out)
+    for key in ("cSupplyCartId", "cPalaceId"):
+        uid = new_ids[key]
+        for civ in data.civs:
+            unit = civ.units[uid]
+            assert (unit.id, unit.copy_id, unit.base_id) == (uid, uid, uid), key
+
+
+def test_string_ids_follow_vanilla_pattern_and_exist():
+    from hinterland import SRC_STRINGS
+    from hinterland.datmod.patches import palace, supply_cart
+
+    strings = (SRC_STRINGS / "en" / "key-value-modded-strings-utf8.txt").read_text(encoding="utf-8")
+    for patch in (palace, supply_cart):
+        assert patch.STRING_NAME < 100000
+        for sid in (patch.STRING_NAME, patch.STRING_CREATION, patch.STRING_HELP):
+            assert f"\n{sid} " in strings

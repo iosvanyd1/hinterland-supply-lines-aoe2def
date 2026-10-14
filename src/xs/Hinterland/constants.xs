@@ -25,14 +25,19 @@ extern const int cResMilitaryPop = 40;
 extern const int cSupplyRefuelSeconds = 90;     // added per cart delivery
 extern const int cSupplyCapSeconds = 180;       // max banked window
 extern const float cCartDeliveryRange = 4.0;    // tiles from building centre
+extern const float cCartLoadRange = 6.5;        // tiles from the Palace centre (5x5 footprint)
+extern const float cCartStoppedEpsilon = 0.05;  // tiles moved per second below which a cart counts as stopped
 
 // ---- Debug ----
-// Shows TC distance and radius in building captions. Turn off before release.
-extern const bool cDebugSupply = true;
+// Shows distance and radius to the nearest supply source in captions. Turn off before release.
+extern const bool cDebugSupply = false;
 
 // ---- Coverage (design sections 6, 11, 13) ----
-extern const float cCapitalRadius = 20.0;       // tiles
-extern const float cTownCenterRadius = 12.0;    // tiles, secondary TCs; = TC_SUPPLY_RADIUS in supply_radius.py
+extern const float cPalaceRadius = 20.0;        // tiles
+extern const float cTownCenterRadius = 12.0;    // tiles, every TC
+
+// ---- Ages (resource cAttributeCurrentAge; standard values, verify) ----
+extern const int cAgeCastle = 2;                // supply rules start here (design section 3)
 
 // ---- Food upkeep (design section 5) ----
 extern const float cFoodUpkeepPerUnitPerSecond = 0.02;
