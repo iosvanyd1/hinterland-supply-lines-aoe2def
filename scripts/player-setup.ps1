@@ -37,7 +37,7 @@ if ($SkipDeploy) {
     Write-Host "`nBuilt in $repo\build (not installed: -SkipDeploy)."
 } else {
     Step 'Installing into the game'
-    & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'deploy.ps1') -AlsoProfile
+    & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'deploy.ps1')
     Check 'Installing into the game'
 }
 
@@ -50,4 +50,4 @@ Write-Host ''
 Write-Host 'First time only, in game:'
 Write-Host '  1. Mods > My Mods > Import Local Mods'
 Write-Host '  2. Installed Mods: switch "Hinterland Supply Lines - Text" On, then restart the game'
-Write-Host 'To play: unranked lobby, Data Mod "Hinterland Supply Lines", Map Style Custom, Location HinterlandArabia.'
+Write-Host 'To play: Data Mod "Hinterland Supply Lines" in the game setup, any map.'

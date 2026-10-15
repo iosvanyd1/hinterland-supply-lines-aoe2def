@@ -1,13 +1,12 @@
 # Copy (or junction) build\<ModName> into the local mods folder.
 #   scripts\deploy.ps1               # copy
 #   scripts\deploy.ps1 -Mode Link    # junction: rebuilds show up without redeploying
+#   scripts\deploy.ps1 -ModName HinterlandSupplyLinesDev   # after `build --dev`
 param(
     [ValidateSet('Copy', 'Link')] [string]$Mode = 'Copy',
     [string]$ModName = 'HinterlandSupplyLines',
     [string]$SteamId,
-    # Also copy XS + RMS into the profile resources folders. Use if the game does
-    # not list the map from inside the mod (unverified, TECHNICAL_UNKNOWNS.md U11),
-    # and for scenario-editor testing with Script Filename = HinterlandSupplyLines.
+    # Retired (kept so old commands still run): used to copy XS + RMS into the profile.
     [switch]$AlsoProfile
 )
 $ErrorActionPreference = 'Stop'
@@ -42,13 +41,9 @@ if ($Mode -eq 'Link') {
     Copy-Item $src $dest -Recurse
 }
 if ($AlsoProfile) {
-    $common = Join-Path $profileDir 'resources\_common'
-    foreach ($sub in 'xs', 'random-map-scripts') {
-        $to = Join-Path $common $sub
-        New-Item -ItemType Directory -Force $to | Out-Null
-        Copy-Item (Join-Path $src "resources\_common\$sub\*") $to -Recurse -Force
-    }
-    Write-Host "Also copied XS + RMS into $common"
+    # Retired: the XS now ships inside the mod as Effects.xs, and a profile copy of
+    # Effects.xs would override the game's own in every game, with or without the mod.
+    Write-Host '-AlsoProfile is no longer needed; nothing copied to the profile.'
 }
 Write-Host "Deployed $ModName -> $dest ($Mode)"
 

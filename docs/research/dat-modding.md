@@ -95,7 +95,7 @@ data.save('out/empires2_x2_p1.dat')
 
   The trigger "Task Object" effect can do the same, including "Queue Action" for shift-queuing. **High** for the API (UGC functions and effects pages); the gameplay quality depends on how you implement it.
 - Give supply "deliveries" with `xsSetPlayerAttribute` or the Modify Resource effect.
-- XS only runs from a scenario (Map tab "Script Filename") or an RMS (`#includeXS file.xs`); per the UGC beginner guide, included XS files are distributed to players. I found **no** evidence that a data mod by itself can auto-run XS in every game (**Unverified**). So plan to ship an RMS (or a scenario) with the mod.
+- XS only runs from a scenario (Map tab "Script Filename") or an RMS (`#includeXS file.xs`); per the UGC beginner guide, included XS files are distributed to players. I found **no** evidence that a data mod by itself can auto-run XS in every game (**Unverified**). So plan to ship an RMS (or a scenario) with the mod. **Superseded 2026-10-14:** a data mod can ship `Effects.xs`, which the game includes in every game (TECHNICAL_UNKNOWNS.md U13).
 
 ## 3. Conversion
 

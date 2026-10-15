@@ -43,6 +43,10 @@ class GamePaths:
         return self.install_dir / "resources" / "_common" / "dat" / "empires2_x2_p1.dat"
 
     @property
+    def vanilla_effects_xs(self) -> Path:
+        return self.install_dir / "resources" / "_common" / "xs" / "Effects.xs"
+
+    @property
     def civilizations_json(self) -> Path:
         return self.install_dir / "resources" / "_common" / "dat" / "civilizations.json"
 

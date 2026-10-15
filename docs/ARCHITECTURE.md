@@ -5,7 +5,7 @@ How the design ([Supply Lines & Upkeep — AoE2 DE Mod Design](https://claude.ai
 ## Runtime shape
 
 - **Data mod** defines new objects only: Supply Cart (slice 1), later the charter unit for "make capital" and the dark-twin buildings if U6 needs them. No logic.
-- **XS** holds all logic as rules on 1–5 s intervals. It is loaded by the RMS (`#includeXS`), or by a scenario's Script Filename during testing.
+- **XS** holds all logic as rules on 1–5 s intervals. The build flattens it and appends it to the game's `Effects.xs`, which every game includes, so it runs on any map (no custom RMS, no `main()`).
 - There are no scenario triggers, because random maps cannot carry them.
 
 ## XS files

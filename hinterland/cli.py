@@ -10,8 +10,10 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="hinterland")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    b = sub.add_parser("build", help="Assemble build/<ModName> (data mod + XS + RMS)")
-    b.add_argument("--no-dat", action="store_true", help="Skip the data mod (XS/RMS only)")
+    b = sub.add_parser("build", help="Assemble build/<ModName> (data mod + XS) and the Text mod")
+    b.add_argument("--no-dat", action="store_true", help="Skip the data mod (XS only)")
+    b.add_argument("--dev", action="store_true",
+                   help="Local test build 'HinterlandSupplyLinesDev', titled '(dev)'; no Text mod")
     sub.add_parser("lint", help="Run xs-check on the XS entry point")
     sub.add_parser("package", help="Zip the data mod and the Text mod into dist/ for upload")
     sub.add_parser("paths", help="Print the resolved game paths")
@@ -22,7 +24,10 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "build":
         paths = None if args.no_dat else config.load_game_paths()
-        assemble.assemble(mod, paths, with_dat=not args.no_dat)
+        if args.dev:
+            assemble.assemble(assemble.dev_mod(mod), paths, with_dat=not args.no_dat, text_mod=False)
+        else:
+            assemble.assemble(mod, paths, with_dat=not args.no_dat)
         return 0
     if args.command == "lint":
         return lint.lint()

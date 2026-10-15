@@ -28,7 +28,7 @@ jobs:
       - name: Tests
         # Data-mod tests skip: the vanilla .dat is copyrighted and not in CI.
         run: python -m pytest -q
-      - name: Build (XS + RMS only) and package
+      - name: Build (XS only, no vanilla dat) and package
         run: |
           python -m hinterland build --no-dat
           python -m hinterland package

@@ -1,6 +1,6 @@
 // Hinterland Supply Lines - entry point.
-// Loaded by the RMS (`#includeXS Hinterland\main.xs`) or by a scenario
-// (Map tab > Script Filename = Hinterland\main).
+// The build flattens this into one file and appends it to the game's Effects.xs
+// (assemble.py), so it runs on every map without a custom RMS.
 //
 // Status: slices 1-3 (supply window, carts, Palace network; design sections 3,
 // 4, 11). Everything marked TODO(test) depends on an in-game test listed in
@@ -204,10 +204,19 @@ void hlRebuildSources() {
 }
 
 // ---------------------------------------------------------------------------
-// Entry point
+// One-time setup
 // ---------------------------------------------------------------------------
 
-void main() {
+// No main(): the build appends this XS to the game's Effects.xs, which the game
+// includes in every game, so a main() would clash with a map's or scenario's.
+// Every rule calls hlEnsureInit() first.
+bool gInitDone = false;
+
+void hlEnsureInit() {
+    if (gInitDone) {
+        return;
+    }
+    gInitDone = true;
     gBuildingIds = xsArrayCreateInt(cMaxTrackedBuildings, -1, "hlBuildingIds");
     gBuildingSupply = xsArrayCreateInt(cMaxTrackedBuildings, 0, "hlBuildingSupply");
     gBuildingLocked = xsArrayCreateInt(cMaxTrackedBuildings, 0, "hlBuildingLocked");
@@ -246,6 +255,7 @@ rule hlTrackPalaces
     minInterval 1
     maxInterval 1
 {
+    hlEnsureInit();
     if (cPalaceId < 0) {
         return;
     }
@@ -282,6 +292,7 @@ rule hlRegisterBuildings
     minInterval 5
     maxInterval 5
 {
+    hlEnsureInit();
     int types = 11;
     for (p = 1; < xsGetNumPlayers()) {
         for (t = 0; < types) {
@@ -328,6 +339,7 @@ rule hlSupplyTick
     minInterval 1
     maxInterval 1
 {
+    hlEnsureInit();
     hlRebuildSources();
     int i = 0;
     while (i < gBuildingCount) {
@@ -479,6 +491,7 @@ rule hlCartLogistics
     minInterval 1
     maxInterval 1
 {
+    hlEnsureInit();
     if ((cSupplyCartId < 0) || (cLoadedSupplyCartId < 0)) {
         return;
     }
@@ -505,6 +518,7 @@ rule hlFoodUpkeep
     minInterval 1
     maxInterval 1
 {
+    hlEnsureInit();
     for (p = 1; < xsGetNumPlayers()) {
         float cost = xsPlayerAttribute(p, cResMilitaryPop) * cFoodUpkeepPerUnitPerSecond;
         float food = xsPlayerAttribute(p, cResFood);

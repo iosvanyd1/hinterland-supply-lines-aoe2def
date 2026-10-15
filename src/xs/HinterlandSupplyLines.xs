@@ -1,5 +1,3 @@
-// Flat entry point at the xs root. The RMS uses `#includeXS HinterlandSupplyLines.xs`
-// and the scenario uses Script Filename = HinterlandSupplyLines, so neither depends
-// on subfolder support in #includeXS (unverified). Subfolder includes below use the
-// XS `include` statement, which is known to work.
+// Entry point for linting and flattening. The build inlines everything and appends
+// it to the game's Effects.xs (assemble.py); nothing includes this file in game.
 include "Hinterland\main.xs";

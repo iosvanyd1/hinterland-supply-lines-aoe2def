@@ -10,7 +10,9 @@ The mod has three parts, all generated or copied into one folder that mirrors th
 |---|---|---|
 | Data mod | `hinterland/datmod/patches/*.py` | Python patches applied to the vanilla `empires2_x2_p1.dat` (Supply Cart unit; later the dark-twin buildings and the charter unit). Never edited by hand in AGE. |
 | XS scripts | `src/xs/` | All game logic: supply windows, carts, capital, aura, upkeep. Runs as XS rules. |
-| Random map | `src/rms/` | The map players pick. Its first line `#includeXS HinterlandSupplyLines.xs` loads the logic. |
+| Text mod | `src/strings/` | Tooltip strings, shipped as the separate `HinterlandSupplyLines-Text` mod. |
+
+There is no custom map. The build flattens the XS into one file and appends it to the game's own `Effects.xs` (read from your install, like the .dat), which the game includes in every game, so the supply rules run on any map. Our XS therefore has no `main()`; each rule calls `hlEnsureInit()`.
 
 `python -m hinterland build` writes `build\HinterlandSupplyLines\` like this:
 
@@ -19,8 +21,8 @@ build\HinterlandSupplyLines\
 ├─ info.json
 └─ resources\_common\
    ├─ dat\empires2_x2_p1.dat, civilizations.json
-   ├─ xs\HinterlandSupplyLines.xs, xs\Hinterland\*.xs
-   └─ random-map-scripts\HinterlandArabia.rms
+   └─ xs\Effects.xs            (vanilla Effects.xs + our flattened XS)
+build\HinterlandSupplyLines-Text\   (info.json + resources\en\strings\key-value\...)
 ```
 
 `scripts\deploy.ps1` copies that folder into your local mods folder.
@@ -57,7 +59,7 @@ build\HinterlandSupplyLines\
 | Profile | `%USERPROFILE%\Games\Age of Empires 2 DE\<SteamID64>\` |
 | Local mods (deploy target) | `<profile>\mods\local\HinterlandSupplyLines\` |
 | Your scenarios | `<profile>\resources\_common\scenario\` |
-| Your RMS / XS (for `-AlsoProfile`) | `<profile>\resources\_common\random-map-scripts\`, `...\xs\` |
+| Subscribed (published) mods | `<profile>\mods\subscribed\` |
 | Logs and crash dumps | `%USERPROFILE%\Games\Age of Empires 2 DE\logs\` |
 
 Never edit `default0.xs` in the install folder. The game overwrites it.
@@ -65,12 +67,12 @@ Never edit `default0.xs` in the install folder. The game overwrites it.
 ## 4. The dev loop
 
 ```powershell
-# 1. edit src\xs\..., src\rms\..., or hinterland\datmod\patches\...
+# 1. edit src\xs\... or hinterland\datmod\patches\...
 .venv\Scripts\python.exe -m hinterland lint      # xs-check; must exit 0
 .venv\Scripts\python.exe -m pytest -q
-.venv\Scripts\python.exe -m hinterland build     # add --no-dat for XS/RMS-only changes
-scripts\deploy.ps1 -AlsoProfile                  # close the game first
-# 2. launch the game and test (section 5)
+.venv\Scripts\python.exe -m hinterland build --dev                     # "Hinterland Supply Lines (dev)"
+scripts\deploy.ps1 -ModName HinterlandSupplyLinesDev                    # close the game first
+# 2. launch the game and test with the (dev) data mod (section 5)
 ```
 
 `scripts\check.ps1` runs lint, tests and build in one go.
@@ -78,7 +80,8 @@ scripts\deploy.ps1 -AlsoProfile                  # close the game first
 Notes:
 - **Close the game before deploying.** It locks mod files and reads the .dat and XS at startup or game start.
 - `scripts\deploy.ps1 -Mode Link` makes the mods folder a junction to `build\`, so later builds need no redeploy. Still restart the match to reload XS.
-- `build` writes the real IDs of new data-mod objects into `build\HinterlandSupplyLines\resources\_common\xs\Hinterland\generated_ids.xs`. The committed `src\xs\Hinterland\generated_ids.xs` keeps the `-1` placeholders, because IDs such as the Supply Cart's (`len(units)`, 2750 on the current game version) shift when a game patch adds units. Do not commit real IDs.
+- The dev build has its own name and title, so it does not clash with the subscribed (published) mod. It has no Text mod: the subscribed Text mod uses the same string IDs.
+- `build` writes the real IDs of new data-mod objects into the built XS (`Effects.xs`). The committed `src\xs\Hinterland\generated_ids.xs` keeps the `-1` placeholders, because IDs such as the Supply Cart's (`len(units)`, 2750 on the current game version) shift when a game patch adds units. Do not commit real IDs.
 
 ## 5. Testing in game
 
@@ -86,19 +89,11 @@ Notes:
 
 The build makes two mods. `HinterlandSupplyLines` is the data mod (gear icon, no checkbox; pick it in the lobby). `HinterlandSupplyLines-Text` holds the tooltips: switch it **On** in Installed Mods, then restart the game. The game loads mod strings at startup from enabled mods only, and a data mod is only enabled later in the lobby, so the data mod's own strings are never read. New string IDs must follow the vanilla unit pattern (name N < 100000, "Build" N+1000, tooltip N+21000, dat help ID N+100000); IDs in the millions never show.
 
-### Fast loop: Scenario Editor (XS logic)
-1. Editor → new scenario, small map. Place a TC, a Barracks far from it, a few units.
-2. Map tab → **Script Filename** = `HinterlandSupplyLines` (no `.xs`). This needs `deploy.ps1 -AlsoProfile`.
-3. Press **Test**. XS compile errors show as a popup; runtime messages from `xsChatData` show in chat.
-4. Save useful setups as `<profile>\resources\_common\scenario\!dev_<name>.aoe2scenario` and note them in PLAYTEST.md.
-
-To test with the custom cart, the scenario must use the data mod. Unverified how the editor picks it up; see T5 in [research/TECHNICAL_UNKNOWNS.md](research/TECHNICAL_UNKNOWNS.md).
-
-### Real loop: random map skirmish (everything)
+### Skirmish (everything)
 1. Single Player → Skirmish.
-2. Data Mod dropdown → **Hinterland Supply Lines**.
-3. Map → Custom → **HinterlandArabia**.
-4. Start. Add AI or a second player as needed.
+2. Data Mod dropdown → **Hinterland Supply Lines (dev)** (or the published **Hinterland Supply Lines**).
+3. Any map, for example Arabia.
+4. Start. Add AI or a second player as needed. Raids and conversions are easiest to set up in the Scenario Editor with the same data mod.
 
 ### Debugging
 - `xsChatData("supply %d", value);` prints to chat. Identical consecutive messages are de-duplicated.
