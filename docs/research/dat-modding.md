@@ -206,3 +206,9 @@ data.save('out/empires2_x2_p1.dat')
 4. Task 161 with Work Range > 0 pays the killer, and does not pay on conversion.
 5. Free TC button slots.
 6. Whether a data mod can auto-run XS without an RMS or scenario (assume no).
+
+## Addendum 2026-10-14: aura switch field and TC age variants
+
+- **Combat Ability (attribute 63) is `type_50.break_off_combat` in genieutils-py**, not `combat_level`. Bit 32 switches a unit's auras on. Vanilla aura units show it: Caravanserai 34, Fortified Outpost 34, Centurion 32; the Castle (no aura) has 2. Setting `combat_level` has no effect on auras (playtest 2026-10-14).
+- **Age-ups replace the TC's data.** Effects of type 3 ("upgrade unit") turn TC 109 into 71 (Feudal), 141 (Castle) and 142 (Imperial). Per-type TC changes must be applied to all four variants, or they disappear at the next age.
+- **Aura attributes 116 and 117** are melee and pierce armor (not in the UGC attribute list; used by vanilla Hoplite, Sparabara and hero auras; verified in game).

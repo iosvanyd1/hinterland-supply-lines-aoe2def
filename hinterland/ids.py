@@ -10,6 +10,11 @@ TRADE_CART_FULL = 204
 
 # Buildings
 TOWN_CENTER = 109
+# Age-ups "upgrade" the TC (effect type 3): 109 Dark -> 71 Feudal -> 141 Castle
+# -> 142 Imperial. Per-type TC data must be on every variant.
+TOWN_CENTER_FEUDAL = 71
+TOWN_CENTER_CASTLE = 141
+TOWN_CENTER_IMPERIAL = 142
 MARKET = 84
 WONDER = 276
 WONDER_VARIANTS = (276, 1368, 1369)   # all on build slot 12; only 276 is ever enabled in vanilla
@@ -29,3 +34,23 @@ ACTION_WONDER_VICTORY = 120   # AGE: "Generate Wonder Victory"
 
 # Unit class IDs
 CLASS_TRADE_CART = 19
+
+# Military unit classes that get the home-turf aura (design section 13).
+# Ships (2, 20, 21, 22, 53), villagers (4), trade (19), livestock (58, 61) excluded.
+MILITARY_CLASSES = (
+    0,   # archer
+    6,   # infantry
+    12,  # cavalry
+    13,  # siege weapon
+    18,  # monk
+    23,  # mounted gunpowder (Conquistador, Arambai)
+    28,  # war dog
+    35,  # petard
+    36,  # cavalry archer
+    44,  # hand cannoneer
+    47,  # scout cavalry
+    51,  # packed trebuchet
+    54,  # unpacked trebuchet
+    55,  # scorpion
+    59,  # heroes and the Regicide King
+)

@@ -34,8 +34,10 @@ extern const float cCartStoppedEpsilon = 0.05;  // tiles moved per second below 
 extern const bool cDebugSupply = false;
 
 // ---- Coverage (design sections 6, 11, 13) ----
+// Keep equal to PALACE_RADIUS / TC_RADIUS in home_turf_aura.py (tested).
 extern const float cPalaceRadius = 20.0;        // tiles
 extern const float cTownCenterRadius = 12.0;    // tiles, every TC
+
 
 // ---- Ages (resource cAttributeCurrentAge; standard values, verify) ----
 extern const int cAgeCastle = 2;                // supply rules start here (design section 3)

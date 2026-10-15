@@ -132,3 +132,34 @@ def test_loaded_cart_is_ox_wagon_and_never_trained(built):
         assert (loaded.id, loaded.copy_id, loaded.base_id) == (loaded_id, loaded_id, loaded_id)
         for unit in (empty, loaded):
             assert all(t.action_type != ids.ACTION_TRADE for t in unit.bird.tasks)
+
+
+def test_home_turf_aura_on_palace_and_tcs(built):
+    from genieutils.datfile import DatFile
+
+    from hinterland.datmod.patches import home_turf_aura as ht
+
+    new_ids, out = built
+    data = DatFile.parse(out)
+    units = [(new_ids["cPalaceId"], ht.PALACE_RADIUS, True)]
+    units += [(tc, ht.TC_RADIUS, tc in ht.TC_VARIANTS_WITH_AURA_ON) for tc in ht.TC_VARIANTS]
+    for unit_id, radius, on in units:
+        unit = data.civs[1].units[unit_id]
+        auras = [t for t in unit.bird.tasks if t.action_type == ids.ACTION_AURA]
+        assert len(auras) == 3 * len(ids.MILITARY_CLASSES), unit_id
+        assert {t.class_id for t in auras} == set(ids.MILITARY_CLASSES)
+        assert {t.work_range for t in auras} == {radius}
+        assert bool(unit.type_50.break_off_combat & 32) == on, unit_id   # Combat Ability
+    # No penalty: the Castle Age effect gains no speed/armor commands.
+    vanilla_data = DatFile.parse(config_vanilla_dat())
+    ours = data.effects[data.techs[ids.CASTLE_AGE].effect_id].effect_commands
+    theirs = vanilla_data.effects[vanilla_data.techs[ids.CASTLE_AGE].effect_id].effect_commands
+    added = ours[len(theirs):]
+    assert not any(c.type in (4, 5) and c.c in (5, 8) for c in added)
+
+
+
+def config_vanilla_dat():
+    from hinterland import config
+
+    return config.load_game_paths().vanilla_dat
