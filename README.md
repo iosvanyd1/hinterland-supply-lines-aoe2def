@@ -19,6 +19,16 @@ Pre-alpha. Slices 1–2 (Supply Cart unit, single-building supply window) are wr
 - [Technical unknowns and in-game test list](docs/research/TECHNICAL_UNKNOWNS.md)
 - [Playtest log](docs/PLAYTEST.md)
 
+## Play with a friend (multiplayer test)
+
+Each player builds the mod from their own copy of the game, so no game files are shared.
+
+1. Close Age of Empires II.
+2. Download [`HinterlandSetup.cmd`](HinterlandSetup.cmd) and double-click it. It offers to install Git and Python 3.11+ if they are missing (then run it again), downloads this repo into `%USERPROFILE%\HinterlandSupplyLines`, builds the mod and installs it. Run it again any time to update.
+3. Compare the "Data mod fingerprint" it prints: every player must see the same one (same game version, same mod version), or the game goes out of sync.
+4. First time only, in game: Mods > My Mods > **Import Local Mods**, switch **Hinterland Supply Lines - Text** On, restart the game.
+5. Play in an **unranked** lobby: Data Mod **Hinterland Supply Lines**, Map Style **Custom**, Location **HinterlandArabia**.
+
 ## Quick start (Windows 11, Steam)
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\setup.ps1
