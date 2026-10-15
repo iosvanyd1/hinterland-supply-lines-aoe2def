@@ -76,6 +76,16 @@ extern const int cMonasteryFeudalId = 30;       // 104 -> 30 -> 31 -> 32 by age
 extern const int cMonasteryCastleId = 31;
 extern const int cMonasteryImperialId = 32;
 extern const int cOutpostId = 598;              // -> Fortified Outpost 2415 by tech
+// Civ techs that upgrade a root type in place, player-wide (effect type 3; the
+// unit keeps its root identity, so XS can only tell the variant by the tech).
+extern const int cFolwarkTech = 793;            // Poles: Mill 68 -> Folwark
+extern const int cThalassocracyTech = 624;      // Malay: Dock 45 -> Harbor
+extern const int cFortifiedChurchGeorgiansTech = 930;  // Monastery 104 -> Fortified Church
+extern const int cFortifiedChurchArmeniansTech = 941;
+extern const int cFortifiedOutpostTech = 1270;  // Outpost 598 -> Fortified Outpost
+extern const int cEconomicSatrapyTech = 1195;   // Achaemenids: TC 109 -> 2275
+extern const int cMilitarySatrapyTech = 1196;   // TC 109 -> 2277
+extern const int cDefensiveSatrapyTech = 1197;  // TC 109 -> 2276
 
 // ---- Resource IDs (UGC guide: general/resources) ----
 extern const int cResFood = 0;
@@ -84,6 +94,17 @@ extern const int cResMilitaryPop = 40;
 // ---- Supply window (design section 4) ----
 extern const int cSupplyRefuelSeconds = 90;     // added per cart delivery
 extern const int cSupplyCapSeconds = 180;       // max banked window
+// Map size scaling (decision 2026-10-15): refuel and cap scale with map width
+// against a Medium map (168 tiles), clamped; new buildings' 20 s does not scale.
+// Tiny 120 -> 71%, Normal 200 -> 119%, Giant 240 -> 142%.
+extern const int cMapScaleBaseTiles = 168;
+extern const int cMapScaleMinPercent = 50;
+extern const int cMapScaleMaxPercent = 200;
+// Per-building caps in percent of cSupplyCapSeconds (decisions 2026-10-15);
+// integers, since XS warns on float-to-int.
+extern const int cFortressSupplyCapPercent = 200;  // Castle, Krepost: 360 s
+extern const int cDonjonSupplyCapPercent = 150;    // Donjon: 270 s
+extern const int cTownCenterSupplyCapPercent = 150; // every TC: 270 s; its outpost's siege clock
 extern const int cNewBuildingSupplySeconds = 20; // a new building's window, so it needs carts at once
 extern const float cCartDeliveryRange = 4.0;    // tiles from building centre
 extern const float cCartLoadRange = 6.5;        // tiles from the Palace centre (5x5 footprint)

@@ -57,6 +57,9 @@ int gSourceCount = 0;
 // Object IDs hlRegisterBuildings tracks, built once in hlEnsureInit.
 int gRegisterTypes = -1;
 
+// Map size factor in percent for supply windows, set once in hlEnsureInit.
+int gMapScalePercent = 100;
+
 // Scratch array reused by xsGetPlayerUnitIds.
 int gScratch = -1;
 
@@ -151,6 +154,32 @@ void hlSetSlot(int map = -1, int unitId = -1, int slot = -1) {
         }
     }
     xsArraySetInt(map, unitId, slot + 1);
+}
+
+// A supply window scaled by map size: cart round trips grow with the distance
+// between bases (decision 2026-10-15, baseline Medium).
+int hlMapScaled(int seconds = 0) {
+    return (seconds * gMapScalePercent / 100);
+}
+
+// Max banked supply of tracked building `index`, scaled by map size: Castles and Kreposts hold 2x
+// the normal window, Donjons and TCs 1.5x (decisions 2026-10-15). Goes by the
+// registered type, which a dark twin keeps.
+int hlSupplyCap(int index = -1) {
+    int objectId = xsArrayGetInt(gBuildingType, index);
+    int cap = hlMapScaled(cSupplyCapSeconds);
+    if ((objectId == cCastleId) || (objectId == cKrepostId)) {
+        return (cap * cFortressSupplyCapPercent / 100);
+    }
+    if (objectId == cDonjonId) {
+        return (cap * cDonjonSupplyCapPercent / 100);
+    }
+    if (xsArrayGetInt(gBuildingIsTc, index) == 1) {
+        // A dry TC takes its whole outpost dark at once (cCoverTc), so its
+        // bank is the town's siege clock (decision 2026-10-15).
+        return (cap * cTownCenterSupplyCapPercent / 100);
+    }
+    return (cap);
 }
 
 int hlFindBuilding(int unitId = -1) {
@@ -271,10 +300,53 @@ int hlRootType(int objectId = -1) {
     return (-1);
 }
 
+bool hlTechDone(int playerId = -1, int techId = -1) {
+    return (xsGetTechState(techId, playerId) == cTechStateDone);
+}
+
+// The civ variant a root type has for this player, or -1. Playtest 2026-10-15:
+// a dark Folwark looked like a Mill, because the Folwark keeps Mill 68's
+// identity and XS picked the Mill's dark twin. TODO(test T34).
+int hlCivVariant(int playerId = -1, int objectId = -1) {
+    if (hlIn4(objectId, cMillId, cMillFeudalId, cMillCastleId, cMillImperialId) &&
+        hlTechDone(playerId, cFolwarkTech)) {
+        return (cFolwarkCastleId);
+    }
+    if (hlIn4(objectId, cDockId, cDockFeudalId, cDockCastleId, cDockImperialId) &&
+        hlTechDone(playerId, cThalassocracyTech)) {
+        return (cHarborId);
+    }
+    if (hlIn4(objectId, cMonasteryId, cMonasteryFeudalId, cMonasteryCastleId, cMonasteryImperialId) &&
+        (hlTechDone(playerId, cFortifiedChurchGeorgiansTech) || hlTechDone(playerId, cFortifiedChurchArmeniansTech))) {
+        return (cFortifiedChurchId);
+    }
+    if ((objectId == cOutpostId) && hlTechDone(playerId, cFortifiedOutpostTech)) {
+        return (cFortifiedOutpostId);
+    }
+    if (hlIn4(objectId, cTownCenterId, cTownCenterFeudalId, cTownCenterCastleId, cTownCenterImperialId)) {
+        // TODO(test T34): two TCs with different Satrapies; the engine applies
+        // each upgrade player-wide, so this picks the first one researched.
+        if (hlTechDone(playerId, cEconomicSatrapyTech)) {
+            return (cEconomicTownCenterId);
+        }
+        if (hlTechDone(playerId, cMilitarySatrapyTech)) {
+            return (cMilitaryTownCenterId);
+        }
+        if (hlTechDone(playerId, cDefensiveSatrapyTech)) {
+            return (cDefensiveTownCenterId);
+        }
+    }
+    return (-1);
+}
+
 // What a building that last read as `objectId` is today, after in-place
 // upgrades a dark twin does not get: Guard Tower / Keep for towers, the age for
 // TCs and drop sites. Supply rules start in Castle Age, so never below Castle.
 int hlUpgradedType(int playerId = -1, int objectId = -1) {
+    int civ = hlCivVariant(playerId, objectId);
+    if (civ >= 0) {
+        return (civ);
+    }
     if ((objectId == cWatchTowerId) || (objectId == cGuardTowerId)) {
         if (xsGetTechState(cKeepTech, playerId) == cTechStateDone) {
             return (cKeepId);
@@ -345,11 +417,11 @@ int hlDarkType(int liveId = -1) {
 // registered type plus hlUpgradedType still covers towers (T23) and age TCs.
 int hlDarkableType(int index = -1) {
     int id = xsArrayGetInt(gBuildingIds, index);
-    int objectId = xsGetUnitObjectId(id);
+    int objectId = hlUpgradedType(xsGetUnitOwner(id), xsArrayGetInt(gBuildingType, index));
     if (hlDarkType(objectId) >= 0) {
         return (objectId);
     }
-    objectId = hlUpgradedType(xsGetUnitOwner(id), xsArrayGetInt(gBuildingType, index));
+    objectId = xsGetUnitObjectId(id);
     if (hlDarkType(objectId) >= 0) {
         return (objectId);
     }
@@ -371,6 +443,9 @@ void hlSwapBuilding(int index = -1, int objectId = -1) {
     int id = xsArrayGetInt(gBuildingIds, index);
     int owner = xsGetUnitOwner(id);
     vector pos = xsGetUnitPosition(id);
+    // Raw HP carries over. A dark twin with a lower max HP clamps it, so a
+    // building can come back damaged: accepted as an out-of-supply cost
+    // (decision 2026-10-15).
     float hp = xsGetUnitHitpoints(id);
     xsRemoveUnit(id);
     int nid = xsCreateUnit(objectId, owner, pos, false, false, false);
@@ -515,6 +590,14 @@ void hlEnsureInit() {
         return;
     }
     gInitDone = true;
+    // TODO(test T33): xsGetMapWidth() returns the width in tiles.
+    gMapScalePercent = xsGetMapWidth() * 100 / cMapScaleBaseTiles;
+    if (gMapScalePercent < cMapScaleMinPercent) {
+        gMapScalePercent = cMapScaleMinPercent;
+    }
+    if (gMapScalePercent > cMapScaleMaxPercent) {
+        gMapScalePercent = cMapScaleMaxPercent;
+    }
     gBuildingIds = xsArrayCreateInt(cMaxTrackedBuildings, -1, "hlBuildingIds");
     gBuildingSupply = xsArrayCreateInt(cMaxTrackedBuildings, 0, "hlBuildingSupply");
     gBuildingLocked = xsArrayCreateInt(cMaxTrackedBuildings, 0, "hlBuildingLocked");
@@ -529,7 +612,7 @@ void hlEnsureInit() {
     // Specific types before the ones they upgrade from, so a building registers
     // as its own type (build time): Keep/Guard before Watch Tower, Harbor before
     // Dock, Fortified Church before Monastery, the TC choices before TC 109.
-    gRegisterTypes = xsArrayCreateInt(32, -1, "hlRegisterTypes");
+    gRegisterTypes = xsArrayCreateInt(33, -1, "hlRegisterTypes");
     xsArraySetInt(gRegisterTypes, 0, cBarracksId);
     xsArraySetInt(gRegisterTypes, 1, cArcheryRangeId);
     xsArraySetInt(gRegisterTypes, 2, cStableId);
@@ -562,6 +645,7 @@ void hlEnsureInit() {
     xsArraySetInt(gRegisterTypes, 29, cPortId);
     xsArraySetInt(gRegisterTypes, 30, cSettlementId);
     xsArraySetInt(gRegisterTypes, 31, cMuleCartId);      // moves: its cover is rechecked each second
+    xsArraySetInt(gRegisterTypes, 32, cOutpostId);       // only once fortified (hlRegisterBuildings)
     gCartIds = xsArrayCreateInt(cMaxTrackedCarts, -1, "hlCartIds");
     gCartLoaded = xsArrayCreateInt(cMaxTrackedCarts, 0, "hlCartLoaded");
     gCartRoute = xsArrayCreateInt(cMaxTrackedCarts, -1, "hlCartRoute");
@@ -638,6 +722,9 @@ rule hlRegisterBuildings
     for (p = 1; <= hlLastPlayer()) {
         for (t = 0; < types) {
             int objectId = xsArrayGetInt(gRegisterTypes, t);
+            if ((objectId == cOutpostId) && (hlCivVariant(p, cOutpostId) < 0)) {
+                continue;   // a plain Outpost needs no supply; a Fortified one keeps its identity
+            }
             int ids = xsGetPlayerUnitIds(p, objectId, gScratch);
             int n = xsArrayGetSize(ids);
             for (i = 0; < n) {
@@ -714,7 +801,7 @@ rule hlSupplyTick
         }
         bool covered = (cover != cCoverNone);
         if (covered) {
-            s = cSupplyCapSeconds;
+            s = hlSupplyCap(i);
         } else if (xsArrayGetInt(gBuildingCover, i) == cCoverTc) {
             s = 0;      // its TC was lost or ran dry: the outpost goes dark at once
         } else if (s > 0) {
@@ -824,7 +911,7 @@ void hlCartTick(int p = -1, int cart = -1, bool isLoadedType = false) {
         if ((toBuilding > cCartDeliveryRange) || (toBuilding >= targetDist)) {
             continue;
         }
-        if (xsArrayGetInt(gBuildingSupply, b) >= cSupplyCapSeconds) {
+        if (xsArrayGetInt(gBuildingSupply, b) >= hlSupplyCap(b)) {
             continue;
         }
         target = b;
@@ -833,9 +920,9 @@ void hlCartTick(int p = -1, int cart = -1, bool isLoadedType = false) {
     if (target < 0) {
         return;
     }
-    int s = xsArrayGetInt(gBuildingSupply, target) + cSupplyRefuelSeconds;
-    if (s > cSupplyCapSeconds) {
-        s = cSupplyCapSeconds;
+    int s = xsArrayGetInt(gBuildingSupply, target) + hlMapScaled(cSupplyRefuelSeconds);
+    if (s > hlSupplyCap(target)) {
+        s = hlSupplyCap(target);
     }
     xsArraySetInt(gBuildingSupply, target, s);
     // No gold here: removing the loaded cart in hlSwapCart fires its task 161
