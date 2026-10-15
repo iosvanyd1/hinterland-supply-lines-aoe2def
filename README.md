@@ -14,6 +14,7 @@ Pre-alpha. Slices 1–2 (Supply Cart unit, single-building supply window) are wr
 
 ## Docs
 - [Design doc](https://claude.ai/code/artifact/f78bb463-4b0f-4604-94be-e4146d721e85)
+- [Knowledge base](docs/KNOWLEDGEBASE.md): verified AoE2 DE engine facts, XS behaviour and dead ends
 - [Development guide](docs/DEVELOPMENT.md): setup on Windows 11 / Steam, build, deploy, test, publish
 - [Architecture](docs/ARCHITECTURE.md)
 - [Technical unknowns and in-game test list](docs/research/TECHNICAL_UNKNOWNS.md)
