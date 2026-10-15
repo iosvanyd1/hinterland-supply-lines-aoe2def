@@ -18,6 +18,13 @@ TOWN_CENTER_IMPERIAL = 142
 MARKET = 84
 WONDER = 276
 WONDER_VARIANTS = (276, 1368, 1369)   # all on build slot 12; only 276 is ever enabled in vanilla
+# Towers (class 52). Guard Tower (tech 140) upgrades 79 -> 234; Keep (tech 63)
+# upgrades 79 and 234 -> 235. Bombard Tower and the Sicilian Donjon never upgrade.
+WATCH_TOWER = 79
+GUARD_TOWER = 234
+KEEP = 235
+BOMBARD_TOWER = 236
+DONJON = 1665
 
 # Techs
 FEUDAL_AGE = 101          # dat names are off by one; go by ID
@@ -28,6 +35,7 @@ HERESY = 439
 EFFECT_ENABLE_DISABLE_UNIT = 2
 
 # Task / action types
+ACTION_ATTACK = 7
 ACTION_TRADE = 111
 ACTION_AURA = 155
 ACTION_WONDER_VICTORY = 120   # AGE: "Generate Wonder Victory"

@@ -10,6 +10,11 @@ DEFAULTS = {
     "cSupplyCartId": -1,
     "cLoadedSupplyCartId": -1,
     "cPalaceId": -1,
+    "cDarkWatchTowerId": -1,
+    "cDarkGuardTowerId": -1,
+    "cDarkKeepId": -1,
+    "cDarkBombardTowerId": -1,
+    "cDarkDonjonId": -1,
 }
 
 HEADER = """\

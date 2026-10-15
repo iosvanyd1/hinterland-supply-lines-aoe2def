@@ -18,9 +18,10 @@ int gBuildingIds = -1;
 int gBuildingSupply = -1;    // remaining seconds
 int gBuildingLocked = -1;    // 0/1
 int gBuildingIsTc = -1;      // 0/1; an active TC is itself a supply source
-int gBuildingType = -1;      // object ID, to read its build time
+int gBuildingType = -1;      // object ID it was registered as (live type for towers)
 int gBuildingReady = -1;     // 0 = under construction (no drain, no lock), 1 = finished
 int gBuildingCover = -1;     // last tick: cCoverNone / cCoverPalace / cCoverTc
+int gBuildingTries = -1;     // towers: seconds spent emptying the garrison before going dark
 int gBuildingCount = 0;
 
 // What covers a building this tick. A TC-covered building belongs to that TC's
@@ -118,19 +119,102 @@ int hlFindCart(int unitId = -1) {
     return (-1);
 }
 
-// Lock or unlock training and research at ONE building (TCs included).
-// Unselectable = no new queue entries (U6, T7 passed). Locking also cancels the
-// queue: xsTaskUnits(Stop) + xsStopUnit clears it and the engine refunds
+bool hlIsTowerType(int objectId = -1) {
+    return ((objectId == cWatchTowerId) || (objectId == cGuardTowerId) || (objectId == cKeepId) ||
+        (objectId == cBombardTowerId) || (objectId == cDonjonId));
+}
+
+// What a tower registered as `objectId` is today: Guard Tower and Keep upgrade
+// towers in place, and a dark twin never upgrades, so go by the techs.
+int hlLiveTowerType(int playerId = -1, int objectId = -1) {
+    if ((objectId != cWatchTowerId) && (objectId != cGuardTowerId)) {
+        return (objectId);
+    }
+    if (xsGetTechState(cKeepTech, playerId) == cTechStateDone) {
+        return (cKeepId);
+    }
+    if (xsGetTechState(cGuardTowerTech, playerId) == cTechStateDone) {
+        return (cGuardTowerId);
+    }
+    return (objectId);
+}
+
+// The data-mod twin that cannot attack (dark_towers.py); -1 before the dat is built.
+int hlDarkTowerType(int liveId = -1) {
+    if (liveId == cWatchTowerId) { return (cDarkWatchTowerId); }
+    if (liveId == cGuardTowerId) { return (cDarkGuardTowerId); }
+    if (liveId == cKeepId) { return (cDarkKeepId); }
+    if (liveId == cBombardTowerId) { return (cDarkBombardTowerId); }
+    if (liveId == cDonjonId) { return (cDarkDonjonId); }
+    return (-1);
+}
+
+// Cancel ONE building's queue with refund: xsTaskUnits(Stop) + xsStopUnit
 // (U14, T8 passed 2026-10-14; which of the two calls does it is untested).
+void hlCancelQueue(int id = -1) {
+    xsArraySetInt(gTaskIds, 0, id);
+    xsTaskUnits(gTaskIds, cActionTypeStop, vector(-1, -1, -1), -1, false, false, false, -1);
+    xsStopUnit(id);
+}
+
+// Swap a tracked tower in place between its live type and its dark twin,
+// keeping HP; the tracked slot and cart routes follow the new unit ID. Like the
+// cart swap (T17), the tower leaves the player's selection. Does nothing when
+// there is no dark twin (dat not built). Playtested (T23).
+void hlSwapTower(int index = -1, bool dark = false) {
+    int id = xsArrayGetInt(gBuildingIds, index);
+    int owner = xsGetUnitOwner(id);
+    int objectId = hlLiveTowerType(owner, xsArrayGetInt(gBuildingType, index));
+    if (dark) {
+        objectId = hlDarkTowerType(objectId);
+    }
+    if (objectId < 0) {
+        return;
+    }
+    vector pos = xsGetUnitPosition(id);
+    float hp = xsGetUnitHitpoints(id);
+    xsRemoveUnit(id);
+    int nid = xsCreateUnit(objectId, owner, pos, false, false, false);
+    xsSetUnitHitpoints(nid, hp);
+    xsArraySetInt(gBuildingIds, index, nid);
+    for (c = 0; < gCartCount) {
+        if (xsArrayGetInt(gCartRoute, c) == id) {
+            xsArraySetInt(gCartRoute, c, nid);
+        }
+    }
+}
+
+// Lock or unlock training and research at ONE building (TCs included).
+// Unselectable = no new queue entries (U6, T7 passed); locking also cancels the
+// queue. Towers instead go dark: they turn into a twin that cannot shoot.
 void hlSetBuildingLocked(int index = -1, bool locked = false) {
     int id = xsArrayGetInt(gBuildingIds, index);
+    bool tower = hlIsTowerType(xsArrayGetInt(gBuildingType, index));
     if (locked) {
-        xsArraySetInt(gTaskIds, 0, id);
-        xsTaskUnits(gTaskIds, cActionTypeStop, vector(-1, -1, -1), -1, false, false, false, -1);
-        xsStopUnit(id);
+        if (tower) {
+            // Empty it first (T23 passed): the dark twin holds no garrison.
+            // Retried each second, then it goes dark anyway.
+            int tries = xsArrayGetInt(gBuildingTries, index);
+            int garrison = xsGetGarrisonedUnitIds(id);
+            if ((xsArrayGetSize(garrison) > 0) && (tries < cTowerUngarrisonTicks)) {
+                xsArraySetInt(gTaskIds, 0, id);
+                xsTaskUnits(gTaskIds, cActionTypeUngarrison, xsGetUnitPosition(id), -1, false, false, false, -1);
+                xsArraySetInt(gBuildingTries, index, tries + 1);
+                return;
+            }
+            xsArraySetInt(gBuildingTries, index, 0);
+            hlSwapTower(index, true);
+            id = xsArrayGetInt(gBuildingIds, index);
+        } else {
+            hlCancelQueue(id);
+        }
         xsSetUnitProperty(id, cUnitSelectable, 0);
         xsArraySetInt(gBuildingLocked, index, 1);
     } else {
+        if (tower) {
+            hlSwapTower(index, false);
+            id = xsArrayGetInt(gBuildingIds, index);
+        }
         xsSetUnitProperty(id, cUnitSelectable, 1);
         xsArraySetInt(gBuildingLocked, index, 0);
     }
@@ -224,6 +308,7 @@ void hlEnsureInit() {
     gBuildingType = xsArrayCreateInt(cMaxTrackedBuildings, -1, "hlBuildingType");
     gBuildingReady = xsArrayCreateInt(cMaxTrackedBuildings, 0, "hlBuildingReady");
     gBuildingCover = xsArrayCreateInt(cMaxTrackedBuildings, 0, "hlBuildingCover");
+    gBuildingTries = xsArrayCreateInt(cMaxTrackedBuildings, 0, "hlBuildingTries");
     gCartIds = xsArrayCreateInt(cMaxTrackedCarts, -1, "hlCartIds");
     gCartLoaded = xsArrayCreateInt(cMaxTrackedCarts, 0, "hlCartLoaded");
     gCartRoute = xsArrayCreateInt(cMaxTrackedCarts, -1, "hlCartRoute");
@@ -287,13 +372,15 @@ rule hlTrackPalaces
 
 // Register new supply recipients. New ones start with only cNewBuildingSupplySeconds
 // (no building-drop strategy); the countdown starts once construction finishes.
+// Towers too (playtest 2026-10-15: tower drops kept shooting anywhere); Keeps and
+// Guard Towers come before Watch Towers so a tower registers as its own type.
 rule hlRegisterBuildings
     active
     minInterval 5
     maxInterval 5
 {
     hlEnsureInit();
-    int types = 11;
+    int types = 16;
     for (p = 1; < xsGetNumPlayers()) {
         for (t = 0; < types) {
             int objectId = cBarracksId;
@@ -307,6 +394,11 @@ rule hlRegisterBuildings
             if (t == 8) { objectId = cBlacksmithId; }
             if (t == 9) { objectId = cUniversityId; }
             if (t == 10) { objectId = cTownCenterId; }
+            if (t == 11) { objectId = cKeepId; }
+            if (t == 12) { objectId = cGuardTowerId; }
+            if (t == 13) { objectId = cWatchTowerId; }
+            if (t == 14) { objectId = cBombardTowerId; }
+            if (t == 15) { objectId = cDonjonId; }
             int ids = xsGetPlayerUnitIds(p, objectId, gScratch);
             int n = xsArrayGetSize(ids);
             for (i = 0; < n) {
@@ -324,6 +416,7 @@ rule hlRegisterBuildings
                 xsArraySetInt(gBuildingType, gBuildingCount, objectId);
                 xsArraySetInt(gBuildingReady, gBuildingCount, 0);
                 xsArraySetInt(gBuildingCover, gBuildingCount, cCoverNone);
+                xsArraySetInt(gBuildingTries, gBuildingCount, 0);
                 if (objectId == cTownCenterId) {
                     xsArraySetInt(gBuildingIsTc, gBuildingCount, 1);
                 }
@@ -354,6 +447,7 @@ rule hlSupplyTick
             xsArraySetInt(gBuildingType, i, xsArrayGetInt(gBuildingType, last));
             xsArraySetInt(gBuildingReady, i, xsArrayGetInt(gBuildingReady, last));
             xsArraySetInt(gBuildingCover, i, xsArrayGetInt(gBuildingCover, last));
+            xsArraySetInt(gBuildingTries, i, xsArrayGetInt(gBuildingTries, last));
             gBuildingCount--;
             continue;
         }
@@ -387,6 +481,12 @@ rule hlSupplyTick
             hlSetBuildingLocked(i, true);
         } else if ((s > 0) && locked) {
             hlSetBuildingLocked(i, false);
+        } else if (locked && (hlIsTowerType(xsArrayGetInt(gBuildingType, i)) == false)) {
+            // Unselectable does not drop a building the player already has
+            // selected (playtest 2026-10-15): its panel still queues units and
+            // techs. No XS call deselects one building, so cancel (and refund)
+            // anything queued every second while locked (T24 passed).
+            hlCancelQueue(id);
         }
         if (hlSupplyRulesOn(owner)) {
             hlUpdateCaption(i, covered);

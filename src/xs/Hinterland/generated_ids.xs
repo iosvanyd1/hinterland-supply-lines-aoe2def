@@ -5,3 +5,8 @@
 extern const int cSupplyCartId = -1;
 extern const int cLoadedSupplyCartId = -1;
 extern const int cPalaceId = -1;
+extern const int cDarkWatchTowerId = -1;
+extern const int cDarkGuardTowerId = -1;
+extern const int cDarkKeepId = -1;
+extern const int cDarkBombardTowerId = -1;
+extern const int cDarkDonjonId = -1;

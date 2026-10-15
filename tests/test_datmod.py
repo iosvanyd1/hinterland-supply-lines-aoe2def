@@ -181,3 +181,37 @@ def test_loaded_cart_pays_killer_cart_gold(built):
         assert r.work_range > 0            # to the killer
         empty = civ.units[new_ids["cSupplyCartId"]]
         assert all(t.action_type != supply_cart.ACTION_UNIT_REFUND for t in empty.bird.tasks)
+
+
+def test_dark_towers_cannot_attack_or_be_built(built):
+    from genieutils.datfile import DatFile
+
+    from hinterland.datmod.patches import dark_towers
+
+    new_ids, out = built
+    data = DatFile.parse(out)
+    for key, live_id in dark_towers.DARK_TWINS.items():
+        dark_id = new_ids[key]
+        for civ in data.civs:
+            live, dark = civ.units[live_id], civ.units[dark_id]
+            if live is None:
+                continue
+            assert (dark.id, dark.copy_id, dark.base_id) == (dark_id, dark_id, dark_id), key
+            assert dark.standing_graphic == live.standing_graphic
+            assert dark.class_ == live.class_
+            assert dark.type_50.attacks == [] and dark.type_50.projectile_unit_id == -1
+            assert all(t.action_type != ids.ACTION_ATTACK for t in dark.bird.tasks)
+            assert dark.creatable.train_locations == []
+            assert dark.garrison_capacity == 0
+
+
+def test_tower_ids_match_xs():
+    import re
+
+    from hinterland import SRC_XS
+
+    xs = (SRC_XS / "Hinterland" / "constants.xs").read_text(encoding="utf-8")
+    for name, value in (("cWatchTowerId", ids.WATCH_TOWER), ("cGuardTowerId", ids.GUARD_TOWER),
+                        ("cKeepId", ids.KEEP), ("cBombardTowerId", ids.BOMBARD_TOWER),
+                        ("cDonjonId", ids.DONJON)):
+        assert re.search(rf"{name} = {value};", xs), name

@@ -62,6 +62,9 @@ IDs below are for that build. Re-check them after a game patch.
 - Each TC variant carries 15 dormant vanilla regen auras (+15 HP/min, 10 tiles); no vanilla effect sets their Combat Ability bit 32. Remove them if you switch auras on. [data]
 - Free TC button slot: 10 (middle row, right). [game]
 
+**Towers**
+- Class 52, built by villagers: Watch Tower 79, Guard Tower 234, Keep 235, Bombard Tower 236, Donjon 1665 (Sicilian bonus). Guard Tower (tech 140) upgrades 79 -> 234 and Keep (tech 63) 79 and 234 -> 235, by effect type 3; build time 80 (Donjon 125). Other shooting buildings: Krepost 1251, Harbor 1189, Fortified Church 1806, Fortified Outposts 2415/2417. [data]
+
 **Techs and effects**
 - Age tech IDs: **101 Feudal, 102 Castle, 103 Imperial** (their dat `name`s are off by one: 101 is named "Middle Age"); go by ID. [data]
 - Enable a unit: effect command type 2, `a = unit`, `b = 1`, appended to the age tech's effect. [game]
@@ -97,9 +100,14 @@ IDs below are for that build. Re-check them after a game patch.
 - `xsGetPlayerUnitIds(p, objectId, arrayId)` fills and returns the array; it lists foundations too (a second Palace was blocked during construction). Use a separate array per list you need at the same time. [game]
 - Construction finished: `xsGetUnitProperty(id, cUnitBuildpoints, owner) >= xsGetObjectAttribute(owner, objectId, cTrainTime, 0)`; the starting TC reads as finished (T18). [game]
 - `xsSetUnitProperty(id, cUnitSelectable, 0)` blocks selection, including hotkeys and control groups, but an existing queue **keeps producing** (T7). [game]
+- It does **not** drop a building the player already has selected: its command panel stays usable and queues new units and techs (bug report 2026-10-15). No XS function deselects a unit; the swap below does it as a side effect. [game]
 - Cancel one building's queue **with refund**: `xsTaskUnits(oneIdArray, cActionTypeStop, vector(-1,-1,-1), -1, false, false, false, -1)` plus `xsStopUnit(id)`. `xsStopUnit` alone did not clear it (T8). [game]
+- No deselect call: to stop a selected locked building from queueing, cancel its queue (above) every second while locked; each order is refunded and nothing is produced (T24). [game]
+- Empty a building's garrison: `xsTaskUnits(oneIdArray, cActionTypeUngarrison, xsGetUnitPosition(id), -1, false, false, false, -1)`; check with `xsArrayGetSize(xsGetGarrisonedUnitIds(id))` (T23). [game]
 - Route units: `xsTaskUnits(oneIdArray, cActionTypeMove, xsGetUnitPosition(target), -1, false, false, false, -1)`. [game]
 - Swap a unit's type in place: read position and HP, `xsRemoveUnit`, `xsCreateUnit(type, p, pos, false, false, false)`, `xsSetUnitHitpoints`. No death sound, no extra losses in the statistics; the unit leaves the player's selection and control groups (T17). [game]
+- The same swap works for buildings: a tower swapped to a data-mod twin stands exactly in place, finished, with its HP, and leaves the selection (T23). [game]
+- `xsGetTechState(tech, p) == cTechStateDone` reads a researched tech; type-3 upgrade effects do not touch clones, so pick the live type from the techs when swapping back (T23). [game]
 - `dist(vectorA, vectorB)` gives tile distance and matches a hand-computed x/y distance. [game]
 - Tasks: `xsGetUnitTaskCount`, `xsUnitTaskAmount(unit, i)` then `xsGetTaskAmount(cTaskAttr...)` read a unit's task `i`. `xsModifyUnitTasks` (per-unit edits) is untested in effect. [game] [docs]
 

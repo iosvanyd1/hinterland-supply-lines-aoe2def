@@ -16,6 +16,15 @@ extern const int cDockId = 45;
 extern const int cMarketId = 84;
 extern const int cBlacksmithId = 103;
 extern const int cUniversityId = 209;
+// Towers (class 52; vanilla dat October 2026). Guard Tower (tech 140) upgrades
+// 79 -> 234, Keep (tech 63) upgrades 79 and 234 -> 235, in place.
+extern const int cWatchTowerId = 79;
+extern const int cGuardTowerId = 234;
+extern const int cKeepId = 235;
+extern const int cBombardTowerId = 236;
+extern const int cDonjonId = 1665;
+extern const int cGuardTowerTech = 140;
+extern const int cKeepTech = 63;
 
 // ---- Resource IDs (UGC guide: general/resources) ----
 extern const int cResFood = 0;
@@ -29,6 +38,7 @@ extern const float cCartDeliveryRange = 4.0;    // tiles from building centre
 extern const float cCartLoadRange = 6.5;        // tiles from the Palace centre (5x5 footprint)
 extern const int cCartGold = 50;                 // taken at loading, returned on delivery, a raider's prize; = CART_GOLD in supply_cart.py (tested)
 extern const float cCartStoppedEpsilon = 0.05;  // tiles moved per second below which a cart counts as stopped
+extern const int cTowerUngarrisonTicks = 3;     // seconds a dry tower tries to empty itself before it goes dark anyway
 
 // ---- Debug ----
 // Shows distance and radius to the nearest supply source in captions. Turn off before release.
