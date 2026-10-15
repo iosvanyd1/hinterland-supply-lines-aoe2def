@@ -1,0 +1,17 @@
+// Hinterland Supply Lines strings, shipped in the strings-only mod (data mods do
+// not load their own strings). IDs follow the vanilla unit pattern: name N,
+// "Build/Train" N+1000, tooltip N+21000 (the dat's help ID is N+100000).
+// Set in hinterland/datmod/patches/*.py.
+
+// Loaded Supply Cart (N = 5997; name only, never trained)
+5997 "Supply Cart (Loaded)"
+
+// Supply Cart (N = 5998)
+5998 "Supply Cart"
+6998 "Train Supply Cart"
+26998 "Train <b>Supply Cart<b> (<cost>)\nLoads supply and 50 gold at your Palace and carries them to buildings outside its radius; the gold comes back on delivery. Send it to a building once; it then shuttles between the Palace and that building. A loaded cart that is destroyed gives its 50 gold to the attacker.\n<hp> <armor> <piercearmor>"
+
+// Palace (N = 5999)
+5999 "Palace"
+6999 "Build Palace"
+26999 "Build <b>Palace<b> (<cost>)\nYour capital: the only place Supply Carts load. From Castle Age, Town Centers inside its radius need no carts. One per player.\n<hp> <armor> <piercearmor>"

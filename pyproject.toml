@@ -1,0 +1,31 @@
+[project]
+name = "hinterland"
+version = "0.1.0"
+description = "Build tooling for the Hinterland Supply Lines mod for Age of Empires II: Definitive Edition"
+requires-python = ">=3.11"
+dependencies = [
+    # Pinned: dat and scenario formats change with game patches. Bump deliberately.
+    "genieutils-py==0.1.2",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[project.scripts]
+hinterland = "hinterland.cli:main"
+
+[tool.hinterland.mod]
+name = "HinterlandSupplyLines"
+title = "Hinterland Supply Lines"
+author = "iosvanyd1"
+description = "Logistics overhaul: capital and town-center coverage, supply carts, supply aura, grace countdowns, food upkeep."
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["hinterland*"]

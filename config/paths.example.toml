@@ -1,0 +1,9 @@
+# Copy to config/paths.local.toml (gitignored) and adjust.
+# Environment variables AOE2_INSTALL_DIR / AOE2_PROFILE_DIR override these.
+
+# Steam default install
+install_dir = 'C:\Program Files (x86)\Steam\steamapps\common\AoE2DE'
+
+# %USERPROFILE%\Games\Age of Empires 2 DE\<SteamID64>
+# Leave empty to auto-detect when exactly one numeric profile folder exists.
+profile_dir = ''
