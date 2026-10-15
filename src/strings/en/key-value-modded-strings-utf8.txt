@@ -9,7 +9,7 @@
 // Supply Cart (N = 5998)
 5998 "Supply Cart"
 6998 "Train Supply Cart"
-26998 "Train <b>Supply Cart<b> (<cost>)\nLoads supply at your Palace and carries it to buildings outside its radius. Send it to a building once; it then shuttles between the Palace and that building.\n<hp> <armor> <piercearmor>"
+26998 "Train <b>Supply Cart<b> (<cost>)\nLoads supply and 50 gold at your Palace and carries them to buildings outside its radius; the gold comes back on delivery. Send it to a building once; it then shuttles between the Palace and that building. A loaded cart that is destroyed gives its 50 gold to the attacker.\n<hp> <armor> <piercearmor>"
 
 // Palace (N = 5999)
 5999 "Palace"

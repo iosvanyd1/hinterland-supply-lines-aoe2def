@@ -8,6 +8,13 @@ like the Ox Wagon; XS swaps a cart to it when it loads at the Palace and back
 when it delivers (playtest 2026-10-14: a carrying graphic on a trade task never
 showed, since XS moves carts with Move orders). Neither has a trade task.
 XS routes the carts (U5).
+
+Raiding (slice 6, decision 2026-10-14): a loading cart takes CART_GOLD from its
+owner (XS). The Loaded Supply Cart carries task 161 "Unit refund" with work
+range > 0: whoever kills a loaded cart gets CART_GOLD gold. When XS removes the
+loaded cart at delivery (the swap), the refund fires with no killer and pays the
+cart's current owner (playtest 2026-10-14), which returns the gold. Empty carts
+are worth nothing. Unverified (T22): Heresy deaths.
 """
 import logging
 
@@ -32,6 +39,10 @@ LOADED_LOOK_UNIT = 1273    # OXWAGON: the Loaded Supply Cart's look
 LOADED_LOOK_CORPSE = 1274  # OXWAGON_D
 LOADED_STRING_NAME = 5997  # "Supply Cart (Loaded)"; free in vanilla strings and dat
 
+# Gold a loaded cart carries; keep equal to cCartGold in constants.xs (tested).
+CART_GOLD = 50
+ACTION_UNIT_REFUND = 161   # task: resource granted on death
+
 # Strings: same vanilla pattern and reasoning as palace.py; base 5998.
 STRING_NAME = 5998
 STRING_CREATION = STRING_NAME + 1000
@@ -51,12 +62,34 @@ def _apply_look(unit, look, corpse: int) -> None:
     unit.dead_unit_id = corpse
 
 
-def _configure_loaded(unit, new_id: int) -> None:
-    """The Loaded Supply Cart: same stats, Ox Wagon look, never trained."""
+def _raid_refund_task(template, version: str):
+    """Task 161: CART_GOLD gold to the player who kills the unit (UGC tasks page)."""
+    task = clone(template, version)
+    task.task_type = 1
+    task.action_type = ACTION_UNIT_REFUND
+    task.is_default = 0
+    task.class_id = -1
+    task.unit_id = -1
+    task.work_value_1 = float(CART_GOLD)   # flat amount
+    task.work_value_2 = 0.0
+    task.work_range = 1.0                  # > 0: grant to the killer, not the owner
+    task.combat_level_flag = 0             # 0: Work Value 1 is flat, not a cost fraction
+    task.resource_multiplier = -1          # productivity resource: none
+    task.resource_in = -1
+    task.resource_out = RES_GOLD
+    task.enabled = -1
+    return task
+
+
+def _configure_loaded(unit, new_id: int, version: str) -> None:
+    """The Loaded Supply Cart: same stats, Ox Wagon look, never trained, raid gold."""
     set_identity(unit, new_id)
     unit.name = "SUPPLYCART_LOADED"
     unit.language_dll_name = LOADED_STRING_NAME
     unit.creatable.train_locations = []
+    unit.bird.tasks.append(_raid_refund_task(unit.bird.tasks[0], version))
+    for i, task in enumerate(unit.bird.tasks):
+        task.id = i
 
 
 def _configure(unit, new_id: int) -> None:
@@ -95,7 +128,7 @@ def apply(data: DatFile, new_ids: dict[str, int]) -> None:
         _configure(cart, new_id)
         _apply_look(cart, civ.units[LOOK_UNIT] or data.civs[0].units[LOOK_UNIT], LOOK_CORPSE)
         loaded = clone(cart, data.version)
-        _configure_loaded(loaded, loaded_id)
+        _configure_loaded(loaded, loaded_id, data.version)
         _apply_look(
             loaded, civ.units[LOADED_LOOK_UNIT] or data.civs[0].units[LOADED_LOOK_UNIT], LOADED_LOOK_CORPSE
         )

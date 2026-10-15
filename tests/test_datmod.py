@@ -163,3 +163,21 @@ def config_vanilla_dat():
     from hinterland import config
 
     return config.load_game_paths().vanilla_dat
+
+
+def test_loaded_cart_pays_killer_cart_gold(built):
+    from genieutils.datfile import DatFile
+
+    from hinterland.datmod.patches import supply_cart
+
+    new_ids, out = built
+    data = DatFile.parse(out)
+    for civ in data.civs:
+        loaded = civ.units[new_ids["cLoadedSupplyCartId"]]
+        refunds = [t for t in loaded.bird.tasks if t.action_type == supply_cart.ACTION_UNIT_REFUND]
+        assert len(refunds) == 1
+        r = refunds[0]
+        assert (r.work_value_1, r.resource_out, r.combat_level_flag) == (supply_cart.CART_GOLD, 3, 0)
+        assert r.work_range > 0            # to the killer
+        empty = civ.units[new_ids["cSupplyCartId"]]
+        assert all(t.action_type != supply_cart.ACTION_UNIT_REFUND for t in empty.bird.tasks)

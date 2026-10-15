@@ -385,7 +385,9 @@ rule hlSupplyTick
 
 // Load at the Palace, deliver to the nearest non-full recipient where the cart
 // stopped. Loading and delivering swap the cart between its empty and loaded
-// unit types (hlSwapCart). A delivery sets the cart's route; XS then shuttles it
+// unit types (hlSwapCart). Loading costs cCartGold. The loaded unit's task 161
+// pays it back: to the killer if the cart is destroyed, else to its current
+// owner when the delivery swap removes it. A delivery sets the cart's route; XS then shuttles it
 // between the Palace and that building with Move orders (U5).
 // Without a Palace, carts already loaded still deliver; they just cannot reload.
 void hlCartTick(int p = -1, int cart = -1, bool isLoadedType = false) {
@@ -417,6 +419,12 @@ void hlCartTick(int p = -1, int cart = -1, bool isLoadedType = false) {
         if (dist(cartPos, xsGetUnitPosition(palace)) > cCartLoadRange) {
             return;
         }
+        // Loading takes cCartGold from the owner; without it the cart waits.
+        float gold = xsPlayerAttribute(p, cAttributeGold);
+        if (gold < cCartGold) {
+            return;
+        }
+        xsSetPlayerAttribute(p, cAttributeGold, gold - cCartGold);
         int loaded = hlSwapCart(ci, cart, p, true);
         int route = xsArrayGetInt(gCartRoute, ci);
         if ((route >= 0) && xsDoesUnitExist(route) && (xsGetUnitOwner(route) == p)) {
@@ -456,6 +464,9 @@ void hlCartTick(int p = -1, int cart = -1, bool isLoadedType = false) {
         s = cSupplyCapSeconds;
     }
     xsArraySetInt(gBuildingSupply, target, s);
+    // No gold here: removing the loaded cart in hlSwapCart fires its task 161
+    // refund with no killer, which pays its current owner cCartGold (playtest
+    // 2026-10-14: an XS refund on top paid 2x).
     xsArraySetInt(gCartRoute, ci, xsArrayGetInt(gBuildingIds, target));
     int empty = hlSwapCart(ci, cart, p, false);
     if (palace >= 0) {

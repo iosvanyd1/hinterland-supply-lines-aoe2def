@@ -27,6 +27,7 @@ extern const int cSupplyCapSeconds = 180;       // max banked window
 extern const int cNewBuildingSupplySeconds = 20; // a new building's window, so it needs carts at once
 extern const float cCartDeliveryRange = 4.0;    // tiles from building centre
 extern const float cCartLoadRange = 6.5;        // tiles from the Palace centre (5x5 footprint)
+extern const int cCartGold = 50;                 // taken at loading, returned on delivery, a raider's prize; = CART_GOLD in supply_cart.py (tested)
 extern const float cCartStoppedEpsilon = 0.05;  // tiles moved per second below which a cart counts as stopped
 
 // ---- Debug ----

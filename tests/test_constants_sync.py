@@ -15,3 +15,9 @@ def test_aura_radii_match_xs_supply_radii():
 
     assert _xs_float("cPalaceRadius") == ht.PALACE_RADIUS
     assert _xs_float("cTownCenterRadius") == ht.TC_RADIUS
+
+
+def test_cart_gold_matches_xs():
+    from hinterland.datmod.patches import supply_cart
+
+    assert _xs_float("cCartGold") == supply_cart.CART_GOLD
