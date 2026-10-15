@@ -21,6 +21,14 @@ Pre-alpha. Slices 1–2 (Supply Cart unit, single-building supply window) are wr
 
 ## Play with a friend (multiplayer test)
 
+**Published mods** (subscribe to both in the in-game Mod Browser or on the web):
+- [Hinterland Supply Lines](https://www.ageofempires.com/mods/details/551284): the data mod
+- [Hinterland Supply Lines - Text](https://www.ageofempires.com/mods/details/551286): tooltips; switch it On in Installed Mods and restart the game
+
+In an **unranked** lobby the host picks Data Mod **Hinterland Supply Lines**, Map Style **Custom**, Location **HinterlandArabia**. Online lobbies only list published data mods. To publish a new version, upload the two zips from `python -m hinterland package` as updates to these mods.
+
+The installer below builds a *local* copy instead: use it for single-player testing on another PC.
+
 Each player builds the mod from their own copy of the game, so no game files are shared.
 
 1. Close Age of Empires II.

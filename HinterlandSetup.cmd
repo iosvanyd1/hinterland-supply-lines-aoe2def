@@ -6,7 +6,7 @@ rem from your own game files and installs it. Close Age of Empires II first.
 setlocal EnableExtensions
 title Hinterland Supply Lines setup
 set "REPO_URL=https://github.com/iosvanyd1/hinterland-supply-lines-aoe2def.git"
-set "BRANCH=claude/scaffold-research"
+set "BRANCH=master"
 set "TARGET=%USERPROFILE%\HinterlandSupplyLines"
 
 where git >nul 2>nul
