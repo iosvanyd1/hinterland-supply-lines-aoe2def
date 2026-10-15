@@ -1,7 +1,13 @@
 """Slice 1: custom Supply Cart unit (design section 3).
 
-Clones the Trade Cart into every civ, trains it at the Town Center, and
-enables it with Castle Age. Values are first-pass tuning, see design section 9.
+Clones the Trade Cart into every civ, trains it at the Palace, and enables it
+with Castle Age. Values are first-pass tuning, see design section 9.
+
+Decision 2026-10-15: trained at the Palace, not the TC. The Palace (a Wonder
+clone) trains nothing else, so no civ's TC buttons can ever collide with it;
+carts start where they load; and a dark TC (dark_buildings.py) would cancel a
+cart queue, while the Palace never locks. T28 passed: the Palace shows the
+training panel.
 
 Looks like the vanilla Ox Cart. A second unit, the Loaded Supply Cart, looks
 like the Ox Wagon; XS swaps a cart to it when it loads at the Palace and back
@@ -30,7 +36,7 @@ HIT_POINTS = 100
 TRAIN_TIME = 40
 COST_FOOD = 50
 COST_WOOD = 100
-TC_BUTTON_ID = 10          # unverified: must be a free slot on the TC panel
+PALACE_BUTTON_ID = 1       # the Palace trains nothing else
 
 # Look: the vanilla Ox Cart, so the Supply Cart is not mistaken for a Trade Cart.
 LOOK_UNIT = 1271           # OXCART (idle/walk/death graphics, icon 263)
@@ -92,7 +98,7 @@ def _configure_loaded(unit, new_id: int, version: str) -> None:
         task.id = i
 
 
-def _configure(unit, new_id: int) -> None:
+def _configure(unit, new_id: int, palace_id: int) -> None:
     set_identity(unit, new_id)
     unit.name = "SUPPLYCART"
     unit.language_dll_name = STRING_NAME
@@ -103,9 +109,9 @@ def _configure(unit, new_id: int) -> None:
 
     creatable = unit.creatable
     location = creatable.train_locations[0]
-    location.unit_id = vanilla.TOWN_CENTER
+    location.unit_id = palace_id
     location.train_time = TRAIN_TIME
-    location.button_id = TC_BUTTON_ID
+    location.button_id = PALACE_BUTTON_ID
     creatable.train_locations = [location]
 
     costs = creatable.resource_costs
@@ -125,7 +131,7 @@ def apply(data: DatFile, new_ids: dict[str, int]) -> None:
     for civ in data.civs:
         source = civ.units[vanilla.TRADE_CART] or template
         cart = clone(source, data.version)
-        _configure(cart, new_id)
+        _configure(cart, new_id, new_ids["cPalaceId"])
         _apply_look(cart, civ.units[LOOK_UNIT] or data.civs[0].units[LOOK_UNIT], LOOK_CORPSE)
         loaded = clone(cart, data.version)
         _configure_loaded(loaded, loaded_id, data.version)

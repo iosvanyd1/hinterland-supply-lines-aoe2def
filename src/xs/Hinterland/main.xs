@@ -21,7 +21,11 @@ int gBuildingIsTc = -1;      // 0/1; an active TC is itself a supply source
 int gBuildingType = -1;      // object ID it was registered as (live type for towers)
 int gBuildingReady = -1;     // 0 = under construction (no drain, no lock), 1 = finished
 int gBuildingCover = -1;     // last tick: cCoverNone / cCoverPalace / cCoverTc
-int gBuildingTries = -1;     // towers: seconds spent emptying the garrison before going dark
+int gBuildingTries = -1;     // seconds spent going dark (queue cancel, then garrison out)
+int gBuildingLive = -1;      // while dark: the live type to swap back to; else -1
+// Unit ID -> tracked slot + 1 (0 = not tracked), so hlRegisterBuildings checks
+// each listed building in O(1) instead of scanning every tracked one.
+int gBuildingSlotOf = -1;
 int gBuildingCount = 0;
 
 // What covers a building this tick. A TC-covered building belongs to that TC's
@@ -38,6 +42,7 @@ int gCartLoaded = -1;
 int gCartRoute = -1;
 int gCartLastPos = -1;   // position one tick ago, to tell a stopped cart from a passing one
 int gCartCount = 0;
+int gCartSlotOf = -1;     // unit ID -> slot + 1, see hlFindSlot
 
 // Palace (the capital) per player, index = player ID; -1 = none.
 int gPalaceIds = -1;
@@ -48,6 +53,9 @@ int gPalaceBuildable = -1;
 int gSourcePos = -1;
 int gSourceOwner = -1;
 int gSourceCount = 0;
+
+// Object IDs hlRegisterBuildings tracks, built once in hlEnsureInit.
+int gRegisterTypes = -1;
 
 // Scratch array reused by xsGetPlayerUnitIds.
 int gScratch = -1;
@@ -63,6 +71,17 @@ int gLoadedCarts = -1;
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+// Highest player ID: xsGetNumPlayers() counts real players without Gaia (T31
+// passed; the old `p < xsGetNumPlayers()` loops skipped the last player).
+// Capped so arrays indexed by player cannot overflow.
+int hlLastPlayer() {
+    int n = xsGetNumPlayers();
+    if (n > cMaxPlayers - 1) {
+        n = cMaxPlayers - 1;
+    }
+    return (n);
+}
 
 // Supply rules start at Castle Age (design section 3); Dark/Feudal play as normal.
 bool hlSupplyRulesOn(int playerId = -1) {
@@ -101,51 +120,239 @@ bool hlIsBuilt(int index = -1) {
     return (points >= needed);
 }
 
-int hlFindBuilding(int unitId = -1) {
-    for (i = 0; < gBuildingCount) {
-        if (xsArrayGetInt(gBuildingIds, i) == unitId) {
-            return (i);
+// Slot maps (gBuildingSlotOf, gCartSlotOf): unit ID -> tracked slot + 1,
+// 0 = not tracked. O(1) lookups instead of scanning the tracked list.
+int hlFindSlot(int map = -1, int unitId = -1) {
+    if ((unitId < 0) || (unitId >= xsArrayGetSize(map))) {
+        return (-1);
+    }
+    return (xsArrayGetInt(map, unitId) - 1);
+}
+
+// Record that unit `unitId` sits in tracked slot `slot` (-1 = no longer tracked).
+// Grows the map by doubling; new entries are zeroed explicitly, since the fill
+// value of xsArrayResizeInt is undocumented.
+void hlSetSlot(int map = -1, int unitId = -1, int slot = -1) {
+    if (unitId < 0) {
+        return;
+    }
+    int size = xsArrayGetSize(map);
+    if (unitId >= size) {
+        if (slot < 0) {
+            return;
+        }
+        int grown = size * 2;
+        while (unitId >= grown) {
+            grown = grown * 2;
+        }
+        xsArrayResizeInt(map, grown);
+        for (k = size; < grown) {
+            xsArraySetInt(map, k, 0);
         }
     }
-    return (-1);
+    xsArraySetInt(map, unitId, slot + 1);
+}
+
+int hlFindBuilding(int unitId = -1) {
+    return (hlFindSlot(gBuildingSlotOf, unitId));
 }
 
 int hlFindCart(int unitId = -1) {
-    for (i = 0; < gCartCount) {
-        if (xsArrayGetInt(gCartIds, i) == unitId) {
-            return (i);
+    return (hlFindSlot(gCartSlotOf, unitId));
+}
+
+// Drop carts that no longer exist (killed, deleted), so their slots are reused.
+// Before 2026-10-15 dead carts kept their slot forever and, after
+// cMaxTrackedCarts carts, new ones were never tracked (never loaded).
+void hlSweepCarts() {
+    int i = 0;
+    while (i < gCartCount) {
+        int id = xsArrayGetInt(gCartIds, i);
+        if (xsDoesUnitExist(id)) {
+            i++;
+            continue;
         }
+        int last = gCartCount - 1;
+        hlSetSlot(gCartSlotOf, id, -1);
+        if (last != i) {
+            hlSetSlot(gCartSlotOf, xsArrayGetInt(gCartIds, last), i);
+        }
+        xsArraySetInt(gCartIds, i, xsArrayGetInt(gCartIds, last));
+        xsArraySetInt(gCartLoaded, i, xsArrayGetInt(gCartLoaded, last));
+        xsArraySetInt(gCartRoute, i, xsArrayGetInt(gCartRoute, last));
+        xsArraySetVector(gCartLastPos, i, xsArrayGetVector(gCartLastPos, last));
+        gCartCount--;
+    }
+}
+
+bool hlIn4(int x = -1, int a = -1, int b = -1, int c = -1, int d = -1) {
+    return ((x == a) || (x == b) || (x == c) || (x == d));
+}
+
+// The Castle (or Imperial) variant of a building that age-ups upgrade in place
+// (effect type 3, any variant in, see constants.xs); -1 if it has no ages.
+int hlAgeVariant(int objectId = -1, bool imperial = false) {
+    int castle = -1;
+    int imp = -1;
+    if (hlIn4(objectId, cTownCenterId, cTownCenterFeudalId, cTownCenterCastleId, cTownCenterImperialId)) {
+        castle = cTownCenterCastleId;
+        imp = cTownCenterImperialId;
+    } else if (hlIn4(objectId, cMillId, cMillFeudalId, cMillCastleId, cMillImperialId)) {
+        castle = cMillCastleId;
+        imp = cMillImperialId;
+    } else if (hlIn4(objectId, cLumberCampId, cLumberCampFeudalId, cLumberCampCastleId, cLumberCampImperialId)) {
+        castle = cLumberCampCastleId;
+        imp = cLumberCampImperialId;
+    } else if (hlIn4(objectId, cMiningCampId, cMiningCampFeudalId, cMiningCampCastleId, cMiningCampImperialId)) {
+        castle = cMiningCampCastleId;
+        imp = cMiningCampImperialId;
+    } else if (hlIn4(objectId, cDockId, cDockFeudalId, cDockCastleId, cDockImperialId)) {
+        castle = cDockCastleId;
+        imp = cDockImperialId;
+    } else if (hlIn4(objectId, cShipyardId, cShipyardId, cShipyardCastleId, cShipyardImperialId)) {
+        castle = cShipyardCastleId;
+        imp = cShipyardImperialId;
+    } else if (hlIn4(objectId, cPortId, cPortFeudalId, cPortCastleId, cPortImperialId)) {
+        castle = cPortCastleId;
+        imp = cPortImperialId;
+    } else if (hlIn4(objectId, cFolwarkId, cFolwarkFeudalId, cFolwarkCastleId, cFolwarkCastleId)) {
+        castle = cFolwarkCastleId;
+        imp = cFolwarkCastleId;
+    } else if (hlIn4(objectId, cSettlementId, cSettlementFeudalId, cSettlementCastleId, cSettlementCastleId)) {
+        castle = cSettlementCastleId;
+        imp = cSettlementCastleId;
+    }
+    if (imperial) {
+        return (imp);
+    }
+    return (castle);
+}
+
+// The root type of a building that upgrades in place: what the player's train
+// locations, research locations and villagers' drop-site lists name. Playtest
+// 2026-10-15 (T25, T26): a building created as a variant ID (Mill 130, TC 141)
+// had no buttons and took no drop-offs, so dark buildings swap back to the root,
+// which the engine gives the player's current upgrade (T29 passed).
+// -1 for buildings that do not upgrade in place.
+int hlRootType(int objectId = -1) {
+    if (hlIn4(objectId, cTownCenterId, cTownCenterFeudalId, cTownCenterCastleId, cTownCenterImperialId) ||
+        hlIn4(objectId, cEconomicTownCenterId, cDefensiveTownCenterId, cMilitaryTownCenterId, cTownCenterId)) {
+        return (cTownCenterId);
+    }
+    if (hlIn4(objectId, cMillId, cMillFeudalId, cMillCastleId, cMillImperialId) ||
+        hlIn4(objectId, cFolwarkId, cFolwarkFeudalId, cFolwarkCastleId, cMillId)) {
+        return (cMillId);
+    }
+    if (hlIn4(objectId, cDockId, cDockFeudalId, cDockCastleId, cDockImperialId) || (objectId == cHarborId)) {
+        return (cDockId);
+    }
+    if (hlIn4(objectId, cLumberCampId, cLumberCampFeudalId, cLumberCampCastleId, cLumberCampImperialId)) {
+        return (cLumberCampId);
+    }
+    if (hlIn4(objectId, cMiningCampId, cMiningCampFeudalId, cMiningCampCastleId, cMiningCampImperialId)) {
+        return (cMiningCampId);
+    }
+    if (hlIn4(objectId, cShipyardId, cShipyardCastleId, cShipyardImperialId, cShipyardId)) {
+        return (cShipyardId);
+    }
+    if (hlIn4(objectId, cPortId, cPortFeudalId, cPortCastleId, cPortImperialId)) {
+        return (cPortId);
+    }
+    if (hlIn4(objectId, cSettlementId, cSettlementFeudalId, cSettlementCastleId, cSettlementId)) {
+        return (cSettlementId);
+    }
+    if (hlIn4(objectId, cMonasteryId, cMonasteryFeudalId, cMonasteryCastleId, cMonasteryImperialId) ||
+        (objectId == cFortifiedChurchId)) {
+        return (cMonasteryId);
+    }
+    if ((objectId == cOutpostId) || (objectId == cFortifiedOutpostId)) {
+        return (cOutpostId);
     }
     return (-1);
 }
 
-bool hlIsTowerType(int objectId = -1) {
-    return ((objectId == cWatchTowerId) || (objectId == cGuardTowerId) || (objectId == cKeepId) ||
-        (objectId == cBombardTowerId) || (objectId == cDonjonId));
-}
-
-// What a tower registered as `objectId` is today: Guard Tower and Keep upgrade
-// towers in place, and a dark twin never upgrades, so go by the techs.
-int hlLiveTowerType(int playerId = -1, int objectId = -1) {
-    if ((objectId != cWatchTowerId) && (objectId != cGuardTowerId)) {
-        return (objectId);
+// What a building that last read as `objectId` is today, after in-place
+// upgrades a dark twin does not get: Guard Tower / Keep for towers, the age for
+// TCs and drop sites. Supply rules start in Castle Age, so never below Castle.
+int hlUpgradedType(int playerId = -1, int objectId = -1) {
+    if ((objectId == cWatchTowerId) || (objectId == cGuardTowerId)) {
+        if (xsGetTechState(cKeepTech, playerId) == cTechStateDone) {
+            return (cKeepId);
+        }
+        if (xsGetTechState(cGuardTowerTech, playerId) == cTechStateDone) {
+            return (cGuardTowerId);
+        }
     }
-    if (xsGetTechState(cKeepTech, playerId) == cTechStateDone) {
-        return (cKeepId);
-    }
-    if (xsGetTechState(cGuardTowerTech, playerId) == cTechStateDone) {
-        return (cGuardTowerId);
+    bool imperial = (xsPlayerAttribute(playerId, cAttributeCurrentAge) >= cAgeImperial);
+    int aged = hlAgeVariant(objectId, imperial);
+    if (aged >= 0) {
+        return (aged);
     }
     return (objectId);
 }
 
-// The data-mod twin that cannot attack (dark_towers.py); -1 before the dat is built.
-int hlDarkTowerType(int liveId = -1) {
+// The type a dark building swaps back to: the root for buildings that upgrade
+// in place (hlRootType), else the tower upgrade from the techs (T23 passed).
+int hlRestoreType(int playerId = -1, int liveId = -1) {
+    int root = hlRootType(liveId);
+    if (root >= 0) {
+        return (root);
+    }
+    return (hlUpgradedType(playerId, liveId));
+}
+
+// The data-mod twin that cannot attack or take drop-offs (dark_buildings.py);
+// -1 for buildings that never go dark (Castles, production buildings) and
+// before the dat is built.
+int hlDarkType(int liveId = -1) {
     if (liveId == cWatchTowerId) { return (cDarkWatchTowerId); }
     if (liveId == cGuardTowerId) { return (cDarkGuardTowerId); }
     if (liveId == cKeepId) { return (cDarkKeepId); }
     if (liveId == cBombardTowerId) { return (cDarkBombardTowerId); }
     if (liveId == cDonjonId) { return (cDarkDonjonId); }
+    if (liveId == cTownCenterCastleId) { return (cDarkTownCenterCastleId); }
+    if (liveId == cTownCenterImperialId) { return (cDarkTownCenterImperialId); }
+    if (liveId == cEconomicTownCenterId) { return (cDarkEconomicTownCenterId); }
+    if (liveId == cDefensiveTownCenterId) { return (cDarkDefensiveTownCenterId); }
+    if (liveId == cMilitaryTownCenterId) { return (cDarkMilitaryTownCenterId); }
+    if (liveId == cKrepostId) { return (cDarkKrepostId); }
+    if (liveId == cHarborId) { return (cDarkHarborId); }
+    if (liveId == cFortifiedChurchId) { return (cDarkFortifiedChurchId); }
+    if (liveId == cFortifiedOutpostId) { return (cDarkFortifiedOutpostId); }
+    if (liveId == cFortifiedOutpost2Id) { return (cDarkFortifiedOutpost2Id); }
+    if (liveId == cDockCastleId) { return (cDarkDockCastleId); }
+    if (liveId == cDockImperialId) { return (cDarkDockImperialId); }
+    if (liveId == cMillCastleId) { return (cDarkMillCastleId); }
+    if (liveId == cMillImperialId) { return (cDarkMillImperialId); }
+    if (liveId == cLumberCampCastleId) { return (cDarkLumberCampCastleId); }
+    if (liveId == cLumberCampImperialId) { return (cDarkLumberCampImperialId); }
+    if (liveId == cMiningCampCastleId) { return (cDarkMiningCampCastleId); }
+    if (liveId == cMiningCampImperialId) { return (cDarkMiningCampImperialId); }
+    if (liveId == cShipyardCastleId) { return (cDarkShipyardCastleId); }
+    if (liveId == cShipyardImperialId) { return (cDarkShipyardImperialId); }
+    if (liveId == cPortCastleId) { return (cDarkPortCastleId); }
+    if (liveId == cPortImperialId) { return (cDarkPortImperialId); }
+    if (liveId == cFolwarkCastleId) { return (cDarkFolwarkId); }
+    if (liveId == cSettlementCastleId) { return (cDarkSettlementId); }
+    if (liveId == cMuleCartId) { return (cDarkMuleCartId); }
+    return (-1);
+}
+
+// The live type of tracked building `index` right now, if it has a dark twin,
+// else -1. Its current object ID first: Dock -> Harbor, Monastery -> Fortified
+// Church and TC -> Economic/Defensive/Military TC change it in place.
+// TODO(test T25): does xsGetUnitObjectId return the upgraded type? If not, the
+// registered type plus hlUpgradedType still covers towers (T23) and age TCs.
+int hlDarkableType(int index = -1) {
+    int id = xsArrayGetInt(gBuildingIds, index);
+    int objectId = xsGetUnitObjectId(id);
+    if (hlDarkType(objectId) >= 0) {
+        return (objectId);
+    }
+    objectId = hlUpgradedType(xsGetUnitOwner(id), xsArrayGetInt(gBuildingType, index));
+    if (hlDarkType(objectId) >= 0) {
+        return (objectId);
+    }
     return (-1);
 }
 
@@ -157,26 +364,20 @@ void hlCancelQueue(int id = -1) {
     xsStopUnit(id);
 }
 
-// Swap a tracked tower in place between its live type and its dark twin,
-// keeping HP; the tracked slot and cart routes follow the new unit ID. Like the
-// cart swap (T17), the tower leaves the player's selection. Does nothing when
-// there is no dark twin (dat not built). Playtested (T23).
-void hlSwapTower(int index = -1, bool dark = false) {
+// Swap tracked building `index` in place for `objectId`, keeping HP; the
+// tracked slot and cart routes follow the new unit ID. Like the cart swap
+// (T17), the building leaves the player's selection (T23 passed for towers).
+void hlSwapBuilding(int index = -1, int objectId = -1) {
     int id = xsArrayGetInt(gBuildingIds, index);
     int owner = xsGetUnitOwner(id);
-    int objectId = hlLiveTowerType(owner, xsArrayGetInt(gBuildingType, index));
-    if (dark) {
-        objectId = hlDarkTowerType(objectId);
-    }
-    if (objectId < 0) {
-        return;
-    }
     vector pos = xsGetUnitPosition(id);
     float hp = xsGetUnitHitpoints(id);
     xsRemoveUnit(id);
     int nid = xsCreateUnit(objectId, owner, pos, false, false, false);
     xsSetUnitHitpoints(nid, hp);
     xsArraySetInt(gBuildingIds, index, nid);
+    hlSetSlot(gBuildingSlotOf, id, -1);
+    hlSetSlot(gBuildingSlotOf, nid, index);
     for (c = 0; < gCartCount) {
         if (xsArrayGetInt(gCartRoute, c) == id) {
             xsArraySetInt(gCartRoute, c, nid);
@@ -186,24 +387,33 @@ void hlSwapTower(int index = -1, bool dark = false) {
 
 // Lock or unlock training and research at ONE building (TCs included).
 // Unselectable = no new queue entries (U6, T7 passed); locking also cancels the
-// queue. Towers instead go dark: they turn into a twin that cannot shoot.
+// queue (refunded). Shooting buildings other than Castles instead go dark: they
+// turn into a twin that cannot shoot, train or research.
 void hlSetBuildingLocked(int index = -1, bool locked = false) {
     int id = xsArrayGetInt(gBuildingIds, index);
-    bool tower = hlIsTowerType(xsArrayGetInt(gBuildingType, index));
+    int owner = xsGetUnitOwner(id);
     if (locked) {
-        if (tower) {
-            // Empty it first (T23 passed): the dark twin holds no garrison.
-            // Retried each second, then it goes dark anyway.
+        int live = hlDarkableType(index);
+        if (live >= 0) {
+            // First tick: cancel the queue, so the refund lands before the
+            // building is removed, and empty it (T23 passed; the dark twin
+            // holds no garrison). Ungarrison is retried each second, then it
+            // goes dark anyway.
             int tries = xsArrayGetInt(gBuildingTries, index);
             int garrison = xsGetGarrisonedUnitIds(id);
-            if ((xsArrayGetSize(garrison) > 0) && (tries < cTowerUngarrisonTicks)) {
-                xsArraySetInt(gTaskIds, 0, id);
-                xsTaskUnits(gTaskIds, cActionTypeUngarrison, xsGetUnitPosition(id), -1, false, false, false, -1);
+            bool full = (xsArrayGetSize(garrison) > 0);
+            if ((tries == 0) || (full && (tries < cDarkUngarrisonTicks))) {
+                hlCancelQueue(id);
+                if (full) {
+                    xsArraySetInt(gTaskIds, 0, id);
+                    xsTaskUnits(gTaskIds, cActionTypeUngarrison, xsGetUnitPosition(id), -1, false, false, false, -1);
+                }
                 xsArraySetInt(gBuildingTries, index, tries + 1);
                 return;
             }
             xsArraySetInt(gBuildingTries, index, 0);
-            hlSwapTower(index, true);
+            hlSwapBuilding(index, hlDarkType(live));
+            xsArraySetInt(gBuildingLive, index, live);
             id = xsArrayGetInt(gBuildingIds, index);
         } else {
             hlCancelQueue(id);
@@ -211,8 +421,10 @@ void hlSetBuildingLocked(int index = -1, bool locked = false) {
         xsSetUnitProperty(id, cUnitSelectable, 0);
         xsArraySetInt(gBuildingLocked, index, 1);
     } else {
-        if (tower) {
-            hlSwapTower(index, false);
+        int wasLive = xsArrayGetInt(gBuildingLive, index);
+        if (wasLive >= 0) {
+            hlSwapBuilding(index, hlRestoreType(owner, wasLive));
+            xsArraySetInt(gBuildingLive, index, -1);
             id = xsArrayGetInt(gBuildingIds, index);
         }
         xsSetUnitProperty(id, cUnitSelectable, 1);
@@ -236,6 +448,8 @@ int hlSwapCart(int ci = -1, int cart = -1, int playerId = -1, bool loaded = fals
     int nid = xsCreateUnit(objectId, playerId, pos, false, false, false);
     xsSetUnitHitpoints(nid, hp);
     xsArraySetInt(gCartIds, ci, nid);
+    hlSetSlot(gCartSlotOf, cart, -1);
+    hlSetSlot(gCartSlotOf, nid, ci);
     if (loaded) {
         xsArraySetInt(gCartLoaded, ci, 1);
     } else {
@@ -309,6 +523,45 @@ void hlEnsureInit() {
     gBuildingReady = xsArrayCreateInt(cMaxTrackedBuildings, 0, "hlBuildingReady");
     gBuildingCover = xsArrayCreateInt(cMaxTrackedBuildings, 0, "hlBuildingCover");
     gBuildingTries = xsArrayCreateInt(cMaxTrackedBuildings, 0, "hlBuildingTries");
+    gBuildingLive = xsArrayCreateInt(cMaxTrackedBuildings, -1, "hlBuildingLive");
+    gBuildingSlotOf = xsArrayCreateInt(4096, 0, "hlBuildingSlotOf");
+    gCartSlotOf = xsArrayCreateInt(4096, 0, "hlCartSlotOf");
+    // Specific types before the ones they upgrade from, so a building registers
+    // as its own type (build time): Keep/Guard before Watch Tower, Harbor before
+    // Dock, Fortified Church before Monastery, the TC choices before TC 109.
+    gRegisterTypes = xsArrayCreateInt(32, -1, "hlRegisterTypes");
+    xsArraySetInt(gRegisterTypes, 0, cBarracksId);
+    xsArraySetInt(gRegisterTypes, 1, cArcheryRangeId);
+    xsArraySetInt(gRegisterTypes, 2, cStableId);
+    xsArraySetInt(gRegisterTypes, 3, cSiegeWorkshopId);
+    xsArraySetInt(gRegisterTypes, 4, cCastleId);
+    xsArraySetInt(gRegisterTypes, 5, cFortifiedChurchId);
+    xsArraySetInt(gRegisterTypes, 6, cMonasteryId);
+    xsArraySetInt(gRegisterTypes, 7, cHarborId);
+    xsArraySetInt(gRegisterTypes, 8, cDockId);
+    xsArraySetInt(gRegisterTypes, 9, cMarketId);
+    xsArraySetInt(gRegisterTypes, 10, cBlacksmithId);
+    xsArraySetInt(gRegisterTypes, 11, cUniversityId);
+    xsArraySetInt(gRegisterTypes, 12, cEconomicTownCenterId);
+    xsArraySetInt(gRegisterTypes, 13, cDefensiveTownCenterId);
+    xsArraySetInt(gRegisterTypes, 14, cMilitaryTownCenterId);
+    xsArraySetInt(gRegisterTypes, 15, cTownCenterId);
+    xsArraySetInt(gRegisterTypes, 16, cKeepId);
+    xsArraySetInt(gRegisterTypes, 17, cGuardTowerId);
+    xsArraySetInt(gRegisterTypes, 18, cWatchTowerId);
+    xsArraySetInt(gRegisterTypes, 19, cBombardTowerId);
+    xsArraySetInt(gRegisterTypes, 20, cDonjonId);
+    xsArraySetInt(gRegisterTypes, 21, cKrepostId);
+    xsArraySetInt(gRegisterTypes, 22, cFortifiedOutpostId);
+    xsArraySetInt(gRegisterTypes, 23, cFortifiedOutpost2Id);
+    xsArraySetInt(gRegisterTypes, 24, cFolwarkId);       // before the Mill it replaces
+    xsArraySetInt(gRegisterTypes, 25, cMillId);
+    xsArraySetInt(gRegisterTypes, 26, cLumberCampId);
+    xsArraySetInt(gRegisterTypes, 27, cMiningCampId);
+    xsArraySetInt(gRegisterTypes, 28, cShipyardId);
+    xsArraySetInt(gRegisterTypes, 29, cPortId);
+    xsArraySetInt(gRegisterTypes, 30, cSettlementId);
+    xsArraySetInt(gRegisterTypes, 31, cMuleCartId);      // moves: its cover is rechecked each second
     gCartIds = xsArrayCreateInt(cMaxTrackedCarts, -1, "hlCartIds");
     gCartLoaded = xsArrayCreateInt(cMaxTrackedCarts, 0, "hlCartLoaded");
     gCartRoute = xsArrayCreateInt(cMaxTrackedCarts, -1, "hlCartRoute");
@@ -344,7 +597,7 @@ rule hlTrackPalaces
     if (cPalaceId < 0) {
         return;
     }
-    for (p = 1; < xsGetNumPlayers()) {
+    for (p = 1; <= hlLastPlayer()) {
         int palaces = xsGetPlayerUnitIds(p, cPalaceId, gScratch);
         int n = xsArrayGetSize(palaces);
         int palace = -1;
@@ -372,33 +625,19 @@ rule hlTrackPalaces
 
 // Register new supply recipients. New ones start with only cNewBuildingSupplySeconds
 // (no building-drop strategy); the countdown starts once construction finishes.
-// Towers too (playtest 2026-10-15: tower drops kept shooting anywhere); Keeps and
-// Guard Towers come before Watch Towers so a tower registers as its own type.
+// Towers and the other shooting buildings too (playtest 2026-10-15: tower drops
+// kept shooting anywhere), and drop sites (decision 2026-10-15: gathering needs
+// supply); they go dark out of supply (hlSetBuildingLocked).
 rule hlRegisterBuildings
     active
     minInterval 5
     maxInterval 5
 {
     hlEnsureInit();
-    int types = 16;
-    for (p = 1; < xsGetNumPlayers()) {
+    int types = xsArrayGetSize(gRegisterTypes);
+    for (p = 1; <= hlLastPlayer()) {
         for (t = 0; < types) {
-            int objectId = cBarracksId;
-            if (t == 1) { objectId = cArcheryRangeId; }
-            if (t == 2) { objectId = cStableId; }
-            if (t == 3) { objectId = cSiegeWorkshopId; }
-            if (t == 4) { objectId = cCastleId; }
-            if (t == 5) { objectId = cMonasteryId; }
-            if (t == 6) { objectId = cDockId; }
-            if (t == 7) { objectId = cMarketId; }
-            if (t == 8) { objectId = cBlacksmithId; }
-            if (t == 9) { objectId = cUniversityId; }
-            if (t == 10) { objectId = cTownCenterId; }
-            if (t == 11) { objectId = cKeepId; }
-            if (t == 12) { objectId = cGuardTowerId; }
-            if (t == 13) { objectId = cWatchTowerId; }
-            if (t == 14) { objectId = cBombardTowerId; }
-            if (t == 15) { objectId = cDonjonId; }
+            int objectId = xsArrayGetInt(gRegisterTypes, t);
             int ids = xsGetPlayerUnitIds(p, objectId, gScratch);
             int n = xsArrayGetSize(ids);
             for (i = 0; < n) {
@@ -410,6 +649,7 @@ rule hlRegisterBuildings
                     break;
                 }
                 xsArraySetInt(gBuildingIds, gBuildingCount, id);
+                hlSetSlot(gBuildingSlotOf, id, gBuildingCount);
                 xsArraySetInt(gBuildingSupply, gBuildingCount, cNewBuildingSupplySeconds);
                 xsArraySetInt(gBuildingLocked, gBuildingCount, 0);
                 xsArraySetInt(gBuildingIsTc, gBuildingCount, 0);
@@ -417,7 +657,9 @@ rule hlRegisterBuildings
                 xsArraySetInt(gBuildingReady, gBuildingCount, 0);
                 xsArraySetInt(gBuildingCover, gBuildingCount, cCoverNone);
                 xsArraySetInt(gBuildingTries, gBuildingCount, 0);
-                if (objectId == cTownCenterId) {
+                xsArraySetInt(gBuildingLive, gBuildingCount, -1);
+                if ((objectId == cTownCenterId) || (objectId == cEconomicTownCenterId) ||
+                    (objectId == cDefensiveTownCenterId) || (objectId == cMilitaryTownCenterId)) {
                     xsArraySetInt(gBuildingIsTc, gBuildingCount, 1);
                 }
                 gBuildingCount++;
@@ -440,6 +682,10 @@ rule hlSupplyTick
         if (xsDoesUnitExist(id) == false) {
             // Swap-remove.
             int last = gBuildingCount - 1;
+            hlSetSlot(gBuildingSlotOf, id, -1);
+            if (last != i) {
+                hlSetSlot(gBuildingSlotOf, xsArrayGetInt(gBuildingIds, last), i);
+            }
             xsArraySetInt(gBuildingIds, i, xsArrayGetInt(gBuildingIds, last));
             xsArraySetInt(gBuildingSupply, i, xsArrayGetInt(gBuildingSupply, last));
             xsArraySetInt(gBuildingLocked, i, xsArrayGetInt(gBuildingLocked, last));
@@ -448,6 +694,7 @@ rule hlSupplyTick
             xsArraySetInt(gBuildingReady, i, xsArrayGetInt(gBuildingReady, last));
             xsArraySetInt(gBuildingCover, i, xsArrayGetInt(gBuildingCover, last));
             xsArraySetInt(gBuildingTries, i, xsArrayGetInt(gBuildingTries, last));
+            xsArraySetInt(gBuildingLive, i, xsArrayGetInt(gBuildingLive, last));
             gBuildingCount--;
             continue;
         }
@@ -481,7 +728,18 @@ rule hlSupplyTick
             hlSetBuildingLocked(i, true);
         } else if ((s > 0) && locked) {
             hlSetBuildingLocked(i, false);
-        } else if (locked && (hlIsTowerType(xsArrayGetInt(gBuildingType, i)) == false)) {
+        } else if (locked && (xsArrayGetInt(gBuildingLive, i) >= 0)) {
+            // An age-up does not upgrade a dark twin. Playtest 2026-10-15: a dark
+            // Castle Age TC vanished from view at the Imperial age-up (still
+            // there: a cart restored it). Re-swap it to the new age's dark twin.
+            int wasLive = xsArrayGetInt(gBuildingLive, i);
+            int nowLive = hlUpgradedType(owner, wasLive);
+            if ((nowLive != wasLive) && (hlDarkType(nowLive) >= 0)) {
+                hlSwapBuilding(i, hlDarkType(nowLive));
+                xsArraySetInt(gBuildingLive, i, nowLive);
+                xsSetUnitProperty(xsArrayGetInt(gBuildingIds, i), cUnitSelectable, 0);
+            }
+        } else if (locked) {
             // Unselectable does not drop a building the player already has
             // selected (playtest 2026-10-15): its panel still queues units and
             // techs. No XS call deselects one building, so cancel (and refund)
@@ -511,6 +769,7 @@ void hlCartTick(int p = -1, int cart = -1, bool isLoadedType = false) {
         }
         ci = gCartCount;
         xsArraySetInt(gCartIds, ci, cart);
+        hlSetSlot(gCartSlotOf, cart, ci);
         xsArraySetInt(gCartRoute, ci, -1);
         xsArraySetVector(gCartLastPos, ci, vector(-1, -1, -1));
         gCartCount++;
@@ -550,7 +809,10 @@ void hlCartTick(int p = -1, int cart = -1, bool isLoadedType = false) {
     // Unload only where the cart stopped: the building the player (or the
     // route) sent it to. Carts driving past other buildings keep their load.
     // Of the buildings in range, the nearest non-full one takes the load;
-    // full ones (every covered building) never do.
+    // full ones (every covered building) never do. Moving carts skip the scan.
+    if (stopped == false) {
+        return;
+    }
     int target = -1;
     float targetDist = 9999.0;
     for (b = 0; < gBuildingCount) {
@@ -568,7 +830,7 @@ void hlCartTick(int p = -1, int cart = -1, bool isLoadedType = false) {
         target = b;
         targetDist = toBuilding;
     }
-    if ((stopped == false) || (target < 0)) {
+    if (target < 0) {
         return;
     }
     int s = xsArrayGetInt(gBuildingSupply, target) + cSupplyRefuelSeconds;
@@ -595,7 +857,8 @@ rule hlCartLogistics
     if ((cSupplyCartId < 0) || (cLoadedSupplyCartId < 0)) {
         return;
     }
-    for (p = 1; < xsGetNumPlayers()) {
+    hlSweepCarts();
+    for (p = 1; <= hlLastPlayer()) {
         // Both lists first: swaps during the tick must not be seen twice.
         int empties = xsGetPlayerUnitIds(p, cSupplyCartId, gEmptyCarts);
         int loadeds = xsGetPlayerUnitIds(p, cLoadedSupplyCartId, gLoadedCarts);
@@ -619,7 +882,7 @@ rule hlFoodUpkeep
     maxInterval 1
 {
     hlEnsureInit();
-    for (p = 1; < xsGetNumPlayers()) {
+    for (p = 1; <= hlLastPlayer()) {
         float cost = xsPlayerAttribute(p, cResMilitaryPop) * cFoodUpkeepPerUnitPerSecond;
         float food = xsPlayerAttribute(p, cResFood);
         if (food <= cost) {

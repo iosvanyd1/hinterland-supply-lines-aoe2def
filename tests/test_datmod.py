@@ -25,7 +25,7 @@ def test_supply_cart_added_to_every_civ(built):
     for civ in data.civs:
         cart = civ.units[cart_id]
         assert cart.name == "SUPPLYCART"
-        assert cart.creatable.train_locations[0].unit_id == ids.TOWN_CENTER
+        assert [loc.unit_id for loc in cart.creatable.train_locations] == [new_ids["cPalaceId"]]
 
 
 def test_castle_age_enables_cart(built):
@@ -183,14 +183,14 @@ def test_loaded_cart_pays_killer_cart_gold(built):
         assert all(t.action_type != supply_cart.ACTION_UNIT_REFUND for t in empty.bird.tasks)
 
 
-def test_dark_towers_cannot_attack_or_be_built(built):
+def test_dark_buildings_cannot_attack_or_be_built(built):
     from genieutils.datfile import DatFile
 
-    from hinterland.datmod.patches import dark_towers
+    from hinterland.datmod.patches import dark_buildings
 
     new_ids, out = built
     data = DatFile.parse(out)
-    for key, live_id in dark_towers.DARK_TWINS.items():
+    for key, live_id in dark_buildings.DARK_TWINS.items():
         dark_id = new_ids[key]
         for civ in data.civs:
             live, dark = civ.units[live_id], civ.units[dark_id]
@@ -200,12 +200,15 @@ def test_dark_towers_cannot_attack_or_be_built(built):
             assert dark.standing_graphic == live.standing_graphic
             assert dark.class_ == live.class_
             assert dark.type_50.attacks == [] and dark.type_50.projectile_unit_id == -1
-            assert all(t.action_type != ids.ACTION_ATTACK for t in dark.bird.tasks)
+            assert all(t.action_type not in (ids.ACTION_ATTACK, ids.ACTION_AURA) for t in dark.bird.tasks)
+            assert not dark.type_50.break_off_combat & 32          # no aura
+            storages = [(r.type, r.amount) for r in dark.resource_storages]
+            assert storages == [(r.type, r.amount) for r in live.resource_storages]   # pop space kept
             assert dark.creatable.train_locations == []
             assert dark.garrison_capacity == 0
 
 
-def test_tower_ids_match_xs():
+def test_dark_building_ids_match_xs():
     import re
 
     from hinterland import SRC_XS
@@ -213,5 +216,84 @@ def test_tower_ids_match_xs():
     xs = (SRC_XS / "Hinterland" / "constants.xs").read_text(encoding="utf-8")
     for name, value in (("cWatchTowerId", ids.WATCH_TOWER), ("cGuardTowerId", ids.GUARD_TOWER),
                         ("cKeepId", ids.KEEP), ("cBombardTowerId", ids.BOMBARD_TOWER),
-                        ("cDonjonId", ids.DONJON)):
+                        ("cDonjonId", ids.DONJON), ("cKrepostId", ids.KREPOST),
+                        ("cHarborId", ids.HARBOR), ("cFortifiedChurchId", ids.FORTIFIED_CHURCH),
+                        ("cFortifiedOutpostId", ids.FORTIFIED_OUTPOST),
+                        ("cFortifiedOutpost2Id", ids.FORTIFIED_OUTPOST_2),
+                        ("cTownCenterCastleId", ids.TOWN_CENTER_CASTLE),
+                        ("cTownCenterImperialId", ids.TOWN_CENTER_IMPERIAL),
+                        ("cEconomicTownCenterId", ids.ECONOMIC_TOWN_CENTER),
+                        ("cDefensiveTownCenterId", ids.DEFENSIVE_TOWN_CENTER),
+                        ("cMilitaryTownCenterId", ids.MILITARY_TOWN_CENTER)):
         assert re.search(rf"{name} = {value};", xs), name
+
+
+AGE_NAMES = ("", "Feudal", "Castle", "Imperial")
+DROP_SITE_CHAINS = (("cDock", ids.DOCK_CHAIN), ("cMill", ids.MILL_CHAIN),
+                    ("cLumberCamp", ids.LUMBER_CAMP_CHAIN), ("cMiningCamp", ids.MINING_CAMP_CHAIN),
+                    ("cShipyard", ids.SHIPYARD_CHAIN), ("cPort", ids.PORT_CHAIN),
+                    ("cFolwark", ids.FOLWARK_CHAIN), ("cSettlement", ids.SETTLEMENT_CHAIN))
+
+
+def test_drop_site_ids_match_xs():
+    import re
+
+    from hinterland import SRC_XS
+
+    xs = (SRC_XS / "Hinterland" / "constants.xs").read_text(encoding="utf-8")
+    for prefix, chain in DROP_SITE_CHAINS:
+        seen = set()
+        for age, value in zip(AGE_NAMES, chain):
+            if value in seen:
+                continue            # no variant for this age (Shipyard Feudal, Folwark Imperial)
+            seen.add(value)
+            name = f"{prefix}{age}Id"
+            assert re.search(rf"{name} = {value};", xs), name
+    assert re.search(rf"cMuleCartId = {ids.MULE_CART};", xs)
+
+
+def test_xs_root_types_upgrade_in_place(built):
+    """hlRootType swaps dark buildings back to the root; each root -> variant is an upgrade."""
+    import re
+
+    from genieutils.datfile import DatFile
+
+    from hinterland import SRC_XS
+
+    xs = (SRC_XS / "Hinterland" / "constants.xs").read_text(encoding="utf-8")
+
+    def const(name):
+        return int(re.search(rf"{name} = (\d+);", xs).group(1))
+
+    data = DatFile.parse(config_vanilla_dat())
+    upgrades = {(c.a, c.b) for e in data.effects for c in e.effect_commands if c.type == 3}
+    pairs = [("cMonasteryId", v) for v in ("cMonasteryFeudalId", "cMonasteryCastleId",
+                                           "cMonasteryImperialId", "cFortifiedChurchId")]
+    pairs += [("cOutpostId", "cFortifiedOutpostId"), ("cDockId", "cHarborId"), ("cMillId", "cFolwarkId")]
+    pairs += [("cTownCenterId", v) for v in ("cTownCenterFeudalId", "cTownCenterCastleId",
+                                             "cTownCenterImperialId", "cEconomicTownCenterId",
+                                             "cDefensiveTownCenterId", "cMilitaryTownCenterId")]
+    for root, variant in pairs:
+        assert (const(root), const(variant)) in upgrades, (root, variant)
+
+
+def test_drop_site_chains_match_upgrade_effects(built):
+    """Each chain step is an effect type 3 (upgrade unit) in the vanilla dat."""
+    from genieutils.datfile import DatFile
+
+    data = DatFile.parse(config_vanilla_dat())
+    upgrades = {(c.a, c.b) for e in data.effects for c in e.effect_commands if c.type == 3}
+    for prefix, chain in DROP_SITE_CHAINS:
+        base = chain[0]
+        for variant in dict.fromkeys(chain[1:]):
+            if variant != base:
+                assert (base, variant) in upgrades, (prefix, variant)
+    for civ in data.civs:
+        for unit in civ.units:
+            if unit is not None and unit.class_ == 4 and unit.bird is not None:
+                for site in (ids.MILL_CHAIN[0], ids.LUMBER_CAMP_CHAIN[0], ids.MINING_CAMP_CHAIN[0]):
+                    if site in unit.bird.drop_sites:
+                        break
+                else:
+                    continue
+                assert ids.MILL_CHAIN[2] not in unit.bird.drop_sites   # sites listed by base ID
