@@ -121,6 +121,7 @@ IDs below are for that build. Re-check them after a game patch.
 **Players**
 - `xsGetNumPlayers()` counts real players without Gaia (2 in a 2-player game): loop `for (p = 1; <= xsGetNumPlayers())`. With `<` the last player was never processed (T31). [game]
 - Current age: `xsPlayerAttribute(p, cAttributeCurrentAge)`; Castle Age = 2. [game]
+- `xsGetMapWidth()` returns the map width in tiles (Tiny 120: supply caps came out at 71%, T33). [game]
 - Gold: `xsPlayerAttribute(p, cAttributeGold)` / `xsSetPlayerAttribute(p, cAttributeGold, v)`. [game]
 - Block or allow building a type: `xsEffectAmount(cEnableObject, id, cAttributeDisable / cAttributeEnable, 0, p)`. Disabling a unit **before** the data enables it (Feudal Age) left it unbuildable; only disable after the data has enabled it. Re-enabling after a disable works (Palace rebuild, T16). [game]
 

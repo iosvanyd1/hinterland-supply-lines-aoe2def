@@ -590,7 +590,7 @@ void hlEnsureInit() {
         return;
     }
     gInitDone = true;
-    // TODO(test T33): xsGetMapWidth() returns the width in tiles.
+    // xsGetMapWidth() is in tiles (T33 passed).
     gMapScalePercent = xsGetMapWidth() * 100 / cMapScaleBaseTiles;
     if (gMapScalePercent < cMapScaleMinPercent) {
         gMapScalePercent = cMapScaleMinPercent;
