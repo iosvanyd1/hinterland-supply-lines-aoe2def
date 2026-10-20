@@ -59,6 +59,8 @@ int gSourceCount = 0;
 int gSourceByOwner = -1;
 int gSourceStart = -1;
 int gSourceEnd = -1;
+// Supplied TCs outside the owner's Palace radius, per player (Decentralized).
+int gOutpostTcCount = -1;
 
 // Per tracked building: its current max supply (hlSupplyCapFor), refreshed
 // every hlSupplyTick.
@@ -653,9 +655,13 @@ void hlUpdateCaption(int index = -1, bool covered = false) {
 
 // Active TCs this tick: finished, and inside their Palace radius or with supply
 // left. Before Castle Age every finished TC is active. Also groups them by
-// owner (gSourceByOwner), which also gives each player's supplied-TC count.
+// owner (gSourceByOwner), and counts each player's supplied TCs outside their
+// Palace radius last tick (gOutpostTcCount, for Decentralized Government).
 void hlRebuildSources() {
     gSourceCount = 0;
+    for (p = 0; < cMaxPlayers) {
+        xsArraySetInt(gOutpostTcCount, p, 0);
+    }
     for (i = 0; < gBuildingCount) {
         if (xsArrayGetInt(gBuildingIsTc, i) == 0) {
             continue;
@@ -670,9 +676,13 @@ void hlRebuildSources() {
         if (xsDoesUnitExist(id) == false) {
             continue;
         }
+        int owner = xsGetUnitOwner(id);
         xsArraySetVector(gSourcePos, gSourceCount, xsGetUnitPosition(id));
-        xsArraySetInt(gSourceOwner, gSourceCount, xsGetUnitOwner(id));
+        xsArraySetInt(gSourceOwner, gSourceCount, owner);
         gSourceCount++;
+        if ((xsArrayGetInt(gBuildingCover, i) != cCoverPalace) && (owner >= 0) && (owner < cMaxPlayers)) {
+            xsArraySetInt(gOutpostTcCount, owner, xsArrayGetInt(gOutpostTcCount, owner) + 1);
+        }
     }
     int k = 0;
     for (p = 0; < cMaxPlayers) {
@@ -773,6 +783,7 @@ void hlEnsureInit() {
     gSourceByOwner = xsArrayCreateVector(cMaxTrackedBuildings, vector(-1, -1, -1), "hlSourceByOwner");
     gSourceStart = xsArrayCreateInt(cMaxPlayers, 0, "hlSourceStart");
     gSourceEnd = xsArrayCreateInt(cMaxPlayers, 0, "hlSourceEnd");
+    gOutpostTcCount = xsArrayCreateInt(cMaxPlayers, 0, "hlOutpostTcCount");
     gIsComputer = xsArrayCreateBool(cMaxPlayers, false, "hlIsComputer");
     gRulesOn = xsArrayCreateBool(cMaxPlayers, false, "hlRulesOn");
     gPalaceR = xsArrayCreateFloat(cMaxPlayers, cPalaceRadius, "hlPalaceR");
@@ -818,7 +829,11 @@ void hlRefreshPlayers() {
         if (hlTechDone(p, cPavedRoadsTech)) {
             bonus = cPavedRoadsRadiusBonus;
         }
-        xsArraySetFloat(gPalaceR, p, cPalaceRadius + bonus);
+        float palaceBonus = bonus;
+        if (hlTechDone(p, cCentralizedGovernmentTech)) {
+            palaceBonus = palaceBonus + cCentralizedPalaceRadiusBonus;   // stacks with Paved Roads
+        }
+        xsArraySetFloat(gPalaceR, p, cPalaceRadius + palaceBonus);
         xsArraySetFloat(gTcR, p, cTownCenterRadius + bonus);
         int palace = xsArrayGetInt(gPalaceIds, p);
         if (palace >= 0) {
@@ -1306,18 +1321,13 @@ rule hlCartLogistics
     }
 }
 
-// A player's supplied TCs: finished, with supply left (their active sources,
-// from the last hlRebuildSources). A dry TC is outside its owner's control,
-// so neither government tech counts it (decision 2026-10-20).
-int hlSuppliedTownCenters(int p = -1) {
-    return (xsArrayGetInt(gSourceEnd, p) - xsArrayGetInt(gSourceStart, p));
-}
-
 // Palace tech incomes, paid every second (palace_techs.py). Each government
-// tech replaces the one before it, so only the newest pays: Centralized
-// Government +75 gold/min with at most 1 supplied TC; else Decentralized
-// Government +10 gold/min per supplied TC; else Feudal Taxation +5 food/min
-// per villager.
+// tech replaces the one before it, so only the newest pays. Reworked toward
+// upkeep relief (decision 2026-10-20): Centralized Government +25 gold/min
+// flat (and Palace radius +6, hlRefreshPlayers); else Decentralized Government
+// +10 gold/min per supplied TC outside the Palace radius (gOutpostTcCount: the
+// TCs that cost cart upkeep); else Feudal Taxation +5 food/min per villager,
+// counting at most cFeudalTaxationMaxVillagers.
 rule hlPalaceIncome
     active
     minInterval 1
@@ -1331,17 +1341,18 @@ rule hlPalaceIncome
             continue;
         }
         if (hlTechDone(p, cCentralizedGovernmentTech)) {
-            if (hlSuppliedTownCenters(p) <= cCentralizedMaxTownCenters) {
-                xsSetPlayerAttribute(p, cAttributeGold, xsPlayerAttribute(p, cAttributeGold) + cCentralizedGold / 60.0);
-            }
+            xsSetPlayerAttribute(p, cAttributeGold, xsPlayerAttribute(p, cAttributeGold) + cCentralizedGold / 60.0);
         } else if (hlTechDone(p, cDecentralizedGovernmentTech)) {
-            float tcs = hlSuppliedTownCenters(p);
+            float tcs = xsArrayGetInt(gOutpostTcCount, p);
             if (tcs > 0.0) {
                 xsSetPlayerAttribute(p, cAttributeGold, xsPlayerAttribute(p, cAttributeGold) + tcs * cDecentralizedGoldPerTc / 60.0);
             }
         } else if (hlTechDone(p, cFeudalTaxationTech)) {
             // TODO(test T36): xsGetPlayerUnitIds with a class ID (904 = villagers).
             float villagers = xsArrayGetSize(xsGetPlayerUnitIds(p, cVillagerClassId, gScratch));
+            if (villagers > cFeudalTaxationMaxVillagers) {
+                villagers = cFeudalTaxationMaxVillagers;
+            }
             if (villagers > 0.0) {
                 xsSetPlayerAttribute(p, cResFood, xsPlayerAttribute(p, cResFood) + villagers * cFeudalTaxationFoodPerVillager / 60.0);
             }

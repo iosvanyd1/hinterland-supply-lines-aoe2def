@@ -8,13 +8,13 @@ it is researched so XS can count repeats.
 
 | Tech | Age | What XS does |
 |---|---|---|
-| Feudal Taxation | Feudal | +5 food per villager per minute |
+| Feudal Taxation | Feudal | +5 food per villager per minute, first 30 villagers only |
 | Provincial Governors | Castle | +2.5 gold per cart delivery to a TC |
 | Paved Roads | Castle | Palace and TC supply radius +4 tiles |
-| Decentralized Government | Castle | replaces Feudal Taxation: +10 gold per minute per supplied TC |
+| Decentralized Government | Castle | replaces Feudal Taxation: +10 gold per minute per supplied TC outside the Palace radius |
 | Supply Depots | Castle | max supply +25 points (50% -> 75% of the base caps) |
 | Colonial Administration | Imperial | +2.5 gold per 20 tiles (map-scaled) between the Palace and the TC a cart delivers to |
-| Centralized Government | Imperial | replaces Decentralized Government: +75 gold per minute with at most 1 supplied TC |
+| Centralized Government | Imperial | replaces Decentralized Government: +25 gold per minute and Palace supply radius +6 |
 | Military Warehouses | Imperial | after Supply Depots: max supply +25 points more (100%) |
 | Star Fortress | Imperial | a Castle or Krepost whose TC is lost keeps 50% of its max supply |
 | Siege & Starve Out | Imperial | enemy Castles and Kreposts out of supply stop firing |

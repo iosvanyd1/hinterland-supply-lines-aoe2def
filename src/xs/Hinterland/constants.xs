@@ -127,9 +127,14 @@ extern const float cTownCenterRadius = 12.0;    // tiles, every TC
 // Decision 2026-10-20: every gold yield halved, so the techs ease the cost of
 // supply lines instead of becoming an economic engine of their own.
 extern const float cFeudalTaxationFoodPerVillager = 5.0;      // per minute
+extern const float cFeudalTaxationMaxVillagers = 30.0;        // only the first 30 count (2026-10-20): max 150 food/min
 extern const float cDecentralizedGoldPerTc = 10.0;            // per minute, per supplied TC
-extern const float cCentralizedGold = 75.0;                   // per minute
-extern const int cCentralizedMaxTownCenters = 1;
+// Centralized Government, reworked 2026-10-20 toward upkeep relief: a flat
+// +25 gold/min with no TC condition, and the Palace radius +6 tiles (stacks
+// with Paved Roads: 20 -> 26, or 30 with both), so fewer buildings need carts.
+// Decentralized counts only supplied TCs outside the Palace radius.
+extern const float cCentralizedGold = 25.0;                   // per minute
+extern const float cCentralizedPalaceRadiusBonus = 6.0;       // tiles
 extern const float cProvincialGovernorsGold = 2.5;            // per delivery to a TC
 // Colonial Administration: +2.5 gold per 20 tiles between the Palace and the TC,
 // the 20 tiles scaled by map size (hlMapScaled), at most 10 steps (+25).
