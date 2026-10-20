@@ -40,6 +40,12 @@ DEFAULTS = {
     "cDarkFolwarkId": -1,
     "cDarkSettlementId": -1,
     "cDarkMuleCartId": -1,
+    "cFeudalTaxationTech": -1,
+    "cProvincialGovernorsTech": -1,
+    "cPavedRoadsTech": -1,
+    "cDecentralizedGovernmentTech": -1,
+    "cColonialAdministrationTech": -1,
+    "cCentralizedGovernmentTech": -1,
 }
 
 HEADER = """\

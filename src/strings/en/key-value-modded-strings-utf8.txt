@@ -3,15 +3,42 @@
 // "Build/Train" N+1000, tooltip N+21000 (the dat's help ID is N+100000).
 // Set in hinterland/datmod/patches/*.py.
 
+// Palace technologies (palace_techs.py; techs also have a tech-tree text,
+// help + 50000 = N + 71000)
+5973 "Feudal Taxation"
+6973 "Research Feudal Taxation (+5 food per villager per minute)"
+26973 "Research <b>Feudal Taxation<b> (<cost>)\n+5 food per villager per minute. Replaced by Decentralized Government."
+76973 "+5 food per villager per minute."
+5974 "Provincial Governors"
+6974 "Research Provincial Governors (Supply Carts earn +5 gold per delivery to a Town Center)"
+26974 "Research <b>Provincial Governors<b> (<cost>)\nA Supply Cart that delivers to a Town Center returns its gold plus 5."
+76974 "Supply Carts earn +5 gold per delivery to a Town Center."
+5975 "Paved Roads"
+6975 "Research Paved Roads (Palace and Town Center supply radius +4)"
+26975 "Research <b>Paved Roads<b> (<cost>)\nPalace and Town Center supply radius +4 tiles."
+76975 "Palace and Town Center supply radius +4 tiles."
+5976 "Decentralized Government"
+6976 "Research Decentralized Government (+20 gold per minute per supplied Town Center)"
+26976 "Research <b>Decentralized Government<b> (<cost>)\nReplaces Feudal Taxation. Every supplied Town Center generates +20 gold per minute."
+76976 "Replaces Feudal Taxation. +20 gold per minute per supplied Town Center."
+5977 "Colonial Administration"
+6977 "Research Colonial Administration (Supply Carts earn gold by the Town Center's distance from the Palace)"
+26977 "Research <b>Colonial Administration<b> (<cost>)\nA Supply Cart that delivers to a Town Center earns +5 gold for every 10 tiles between that Town Center and your Palace (more tiles on larger maps), up to +50."
+76977 "Supply Carts earn gold by the Town Center's distance from the Palace."
+5978 "Centralized Government"
+6978 "Research Centralized Government (+150 gold per minute with 1 Town Center or less)"
+26978 "Research <b>Centralized Government<b> (<cost>)\nReplaces Decentralized Government. +150 gold per minute while you have 1 Town Center or less."
+76978 "Replaces Decentralized Government. +150 gold per minute with 1 Town Center or less."
+
 // Loaded Supply Cart (N = 5997; name only, never trained)
 5997 "Supply Cart (Loaded)"
 
 // Supply Cart (N = 5998)
 5998 "Supply Cart"
 6998 "Train Supply Cart"
-26998 "Train <b>Supply Cart<b> (<cost>)\nLoads supply and 50 gold at your Palace and carries them to buildings outside its radius; the gold comes back on delivery. Send it to a building once; it then shuttles between the Palace and that building. A loaded cart that is destroyed gives its 50 gold to the attacker.\n<hp> <armor> <piercearmor>"
+26998 "Train <b>Supply Cart<b> (<cost>)\nLoads supply and 50 gold at your Palace and carries them to buildings outside its radius; the gold comes back on delivery. Send it to a building once; it then shuttles between the Palace and that building. A loaded cart that is destroyed gives its 50 gold to the attacker. From Castle Age, infantry, archers, monks and siege outside your supply radii lose HP unless a loaded cart is within 20 tiles.\n<hp> <armor> <piercearmor>"
 
 // Palace (N = 5999)
 5999 "Palace"
 6999 "Build Palace"
-26999 "Build <b>Palace<b> (<cost>)\nYour capital: the only place Supply Carts load. From Castle Age, Town Centers inside its radius need no carts. One per player.\n<hp> <armor> <piercearmor>"
+26999 "Build <b>Palace<b> (<cost>)\nYour capital: the only place Supply Carts load. From Castle Age, Town Centers inside its radius need no carts. Researches the Palace technologies. One per player.\n<hp> <armor> <piercearmor>"

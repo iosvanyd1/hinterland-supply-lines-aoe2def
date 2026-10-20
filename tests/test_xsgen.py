@@ -16,3 +16,10 @@ def test_render_uses_new_ids():
 def test_render_rejects_unknown_constant():
     with pytest.raises(ValueError):
         xsgen.render({"cTypo": 1})
+
+
+def test_every_palace_tech_has_an_xs_constant():
+    from hinterland.datmod.patches import palace_techs
+
+    for spec in palace_techs.TECHS:
+        assert spec.key in xsgen.DEFAULTS

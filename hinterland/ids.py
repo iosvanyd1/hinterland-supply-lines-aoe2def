@@ -57,6 +57,8 @@ MILITARY_TOWN_CENTER = 2277
 # Techs
 FEUDAL_AGE = 101          # dat names are off by one; go by ID
 CASTLE_AGE = 102          # dat names are off by one; go by ID
+IMPERIAL_AGE = 103        # dat names are off by one; go by ID
+COINAGE = 23              # Market tech; template for the Palace techs
 HERESY = 439
 
 # Effect command types

@@ -3,7 +3,8 @@
 // (assemble.py), so it runs on every map without a custom RMS.
 //
 // Status: slices 1-3 (supply window, carts, Palace network; design sections 3,
-// 4, 11). Everything marked TODO(test) depends on an in-game test listed in
+// 4, 11), Palace techs, attrition, computer players exempt (decisions
+// 2026-10-20). Everything marked TODO(test) depends on an in-game test listed in
 // docs/research/TECHNICAL_UNKNOWNS.md.
 
 include "Hinterland\constants.xs";
@@ -53,6 +54,21 @@ int gPalaceBuildable = -1;
 int gSourcePos = -1;
 int gSourceOwner = -1;
 int gSourceCount = 0;
+// The same sources grouped by owner: player p's are [gSourceStart[p], gSourceEnd[p])
+// of gSourceByOwner, so hlCoverType skips other players' TCs.
+int gSourceByOwner = -1;
+int gSourceStart = -1;
+int gSourceEnd = -1;
+// Finished TCs per player this tick (any supply), for Centralized Government.
+int gTcCount = -1;
+
+// Per-player values refreshed once at the start of every rule (hlBeginTick),
+// instead of engine calls per building or unit.
+int gIsComputer = -1;       // bool
+int gRulesOn = -1;          // bool: Castle Age or later
+int gPalaceR = -1;          // float: Palace supply radius (Paved Roads included)
+int gTcR = -1;              // float: TC supply radius
+int gPalacePos = -1;        // vector: position of the Palace, if any
 
 // Object IDs hlRegisterBuildings tracks, built once in hlEnsureInit.
 int gRegisterTypes = -1;
@@ -69,6 +85,16 @@ int gTaskIds = -1;
 // Cart lists per tick (empty and loaded types), kept apart from gScratch.
 int gEmptyCarts = -1;
 int gLoadedCarts = -1;
+
+// Attrition (hlAttrition): the unit classes it hits, and its own unit lists.
+int gAttritionClasses = -1;
+int gAttritionUnits = -1;
+int gAttritionCarts = -1;
+int gAttritionCartPos = -1; // loaded-cart positions of the player being processed
+
+// Caption last written per tracked building: -1 none yet, -2 "", else the
+// seconds shown (0 = OUT OF SUPPLY). Only changes are written.
+int gBuildingShown = -1;
 
 
 // ---------------------------------------------------------------------------
@@ -87,26 +113,44 @@ int hlLastPlayer() {
 }
 
 // Supply rules start at Castle Age (design section 3); Dark/Feudal play as normal.
+// Read from the per-tick cache (hlRefreshPlayers).
 bool hlSupplyRulesOn(int playerId = -1) {
-    return (xsPlayerAttribute(playerId, cAttributeCurrentAge) >= cAgeCastle);
+    return (xsArrayGetBool(gRulesOn, playerId));
+}
+
+// Computer players are left alone by every rule (decision 2026-10-20): the AI
+// knows neither the Palace nor carts, so supply would only cripple it.
+// Refreshed every tick, not once, so a player taken over by the AI is released.
+// TODO(test T35): xsGetPlayerType returns 3 for a skirmish AI.
+bool hlIsComputer(int playerId = -1) {
+    return (xsArrayGetBool(gIsComputer, playerId));
+}
+
+// A researched tech; false while the data mod is not built (ID -1).
+bool hlTechDone(int playerId = -1, int techId = -1) {
+    if (techId < 0) {
+        return (false);
+    }
+    return (xsGetTechState(techId, playerId) == cTechStateDone);
 }
 
 // What covers `pos`: the owner's Palace radius first, then (for anything but a
 // TC) the radius of one of the owner's active TCs. TCs do not chain: a TC is
 // active only through the Palace or its own supply (design section 11).
+// Radii include Paved Roads (palace_techs.py); all per-player values come from
+// the per-tick cache (hlRefreshPlayers).
 int hlCoverType(int playerId = -1, vector pos = vector(0, 0, 0), bool isTc = false) {
-    int palace = xsArrayGetInt(gPalaceIds, playerId);
-    if ((palace >= 0) && (dist(xsGetUnitPosition(palace), pos) <= cPalaceRadius)) {
+    if ((xsArrayGetInt(gPalaceIds, playerId) >= 0) &&
+        (dist(xsArrayGetVector(gPalacePos, playerId), pos) <= xsArrayGetFloat(gPalaceR, playerId))) {
         return (cCoverPalace);
     }
     if (isTc) {
         return (cCoverNone);
     }
-    for (i = 0; < gSourceCount) {
-        if (xsArrayGetInt(gSourceOwner, i) != playerId) {
-            continue;
-        }
-        if (dist(xsArrayGetVector(gSourcePos, i), pos) <= cTownCenterRadius) {
+    float tcRadius = xsArrayGetFloat(gTcR, playerId);
+    int end = xsArrayGetInt(gSourceEnd, playerId);
+    for (i = xsArrayGetInt(gSourceStart, playerId); < end) {
+        if (dist(xsArrayGetVector(gSourceByOwner, i), pos) <= tcRadius) {
             return (cCoverTc);
         }
     }
@@ -300,10 +344,6 @@ int hlRootType(int objectId = -1) {
     return (-1);
 }
 
-bool hlTechDone(int playerId = -1, int techId = -1) {
-    return (xsGetTechState(techId, playerId) == cTechStateDone);
-}
-
 // The civ variant a root type has for this player, or -1. Playtest 2026-10-15:
 // a dark Folwark looked like a Mill, because the Folwark keeps Mill 68's
 // identity and XS picked the Mill's dark twin. TODO(test T34).
@@ -451,6 +491,7 @@ void hlSwapBuilding(int index = -1, int objectId = -1) {
     int nid = xsCreateUnit(objectId, owner, pos, false, false, false);
     xsSetUnitHitpoints(nid, hp);
     xsArraySetInt(gBuildingIds, index, nid);
+    xsArraySetInt(gBuildingShown, index, -1);   // the new unit has no caption yet
     hlSetSlot(gBuildingSlotOf, id, -1);
     hlSetSlot(gBuildingSlotOf, nid, index);
     for (c = 0; < gCartCount) {
@@ -539,28 +580,40 @@ void hlMoveCart(int cart = -1, int target = -1) {
     xsTaskUnits(gTaskIds, cActionTypeMove, xsGetUnitPosition(target), -1, false, false, false, -1);
 }
 
-// Covered buildings show no caption.
+// Covered buildings show no caption. Writes only when the text changes
+// (gBuildingShown), instead of every building every second.
 void hlUpdateCaption(int index = -1, bool covered = false) {
-    int id = xsArrayGetInt(gBuildingIds, index);
     int s = xsArrayGetInt(gBuildingSupply, index);
+    int key = -2;
+    if (covered == false) {
+        key = s;
+        if (key < 0) {
+            key = 0;
+        }
+    }
+    if (xsArrayGetInt(gBuildingShown, index) == key) {
+        return;
+    }
+    xsArraySetInt(gBuildingShown, index, key);
     string text = "Supply " + s + "s";
     if (covered) {
         text = "";
     } else if (s <= 0) {
         text = "OUT OF SUPPLY";
     }
-    xsSetUnitCaption(id, text);
+    xsSetUnitCaption(xsArrayGetInt(gBuildingIds, index), text);
 }
 
 // Active TCs this tick: finished, and inside their Palace radius or with supply
-// left. Before Castle Age every finished TC is active.
+// left. Before Castle Age every finished TC is active. Also groups them by
+// owner (gSourceByOwner) and counts each player's finished TCs (gTcCount).
 void hlRebuildSources() {
     gSourceCount = 0;
+    for (p = 0; < cMaxPlayers) {
+        xsArraySetInt(gTcCount, p, 0);
+    }
     for (i = 0; < gBuildingCount) {
         if (xsArrayGetInt(gBuildingIsTc, i) == 0) {
-            continue;
-        }
-        if (xsArrayGetInt(gBuildingSupply, i) <= 0) {
             continue;
         }
         if (xsArrayGetInt(gBuildingReady, i) == 0) {
@@ -570,9 +623,27 @@ void hlRebuildSources() {
         if (xsDoesUnitExist(id) == false) {
             continue;
         }
+        int owner = xsGetUnitOwner(id);
+        if ((owner >= 0) && (owner < cMaxPlayers)) {
+            xsArraySetInt(gTcCount, owner, xsArrayGetInt(gTcCount, owner) + 1);
+        }
+        if (xsArrayGetInt(gBuildingSupply, i) <= 0) {
+            continue;   // dry: counts as a TC, covers nothing
+        }
         xsArraySetVector(gSourcePos, gSourceCount, xsGetUnitPosition(id));
-        xsArraySetInt(gSourceOwner, gSourceCount, xsGetUnitOwner(id));
+        xsArraySetInt(gSourceOwner, gSourceCount, owner);
         gSourceCount++;
+    }
+    int k = 0;
+    for (p = 0; < cMaxPlayers) {
+        xsArraySetInt(gSourceStart, p, k);
+        for (i = 0; < gSourceCount) {
+            if (xsArrayGetInt(gSourceOwner, i) == p) {
+                xsArraySetVector(gSourceByOwner, k, xsArrayGetVector(gSourcePos, i));
+                k++;
+            }
+        }
+        xsArraySetInt(gSourceEnd, p, k);
     }
 }
 
@@ -658,6 +729,55 @@ void hlEnsureInit() {
     gTaskIds = xsArrayCreateInt(1, -1, "hlTaskIds");
     gEmptyCarts = xsArrayCreateInt(1, -1, "hlEmptyCarts");
     gLoadedCarts = xsArrayCreateInt(1, -1, "hlLoadedCarts");
+    gBuildingShown = xsArrayCreateInt(cMaxTrackedBuildings, -1, "hlBuildingShown");
+    gSourceByOwner = xsArrayCreateVector(cMaxTrackedBuildings, vector(-1, -1, -1), "hlSourceByOwner");
+    gSourceStart = xsArrayCreateInt(cMaxPlayers, 0, "hlSourceStart");
+    gSourceEnd = xsArrayCreateInt(cMaxPlayers, 0, "hlSourceEnd");
+    gTcCount = xsArrayCreateInt(cMaxPlayers, 0, "hlTcCount");
+    gIsComputer = xsArrayCreateBool(cMaxPlayers, false, "hlIsComputer");
+    gRulesOn = xsArrayCreateBool(cMaxPlayers, false, "hlRulesOn");
+    gPalaceR = xsArrayCreateFloat(cMaxPlayers, cPalaceRadius, "hlPalaceR");
+    gTcR = xsArrayCreateFloat(cMaxPlayers, cTownCenterRadius, "hlTcR");
+    gPalacePos = xsArrayCreateVector(cMaxPlayers, vector(-1, -1, -1), "hlPalacePos");
+    gAttritionUnits = xsArrayCreateInt(1, -1, "hlAttritionUnits");
+    gAttritionCarts = xsArrayCreateInt(1, -1, "hlAttritionCarts");
+    gAttritionCartPos = xsArrayCreateVector(cMaxTrackedCarts, vector(-1, -1, -1), "hlAttritionCartPos");
+    gAttritionClasses = xsArrayCreateInt(10, -1, "hlAttritionClasses");
+    xsArraySetInt(gAttritionClasses, 0, cArcherClassId);
+    xsArraySetInt(gAttritionClasses, 1, cInfantryClassId);
+    xsArraySetInt(gAttritionClasses, 2, cSiegeClassId);
+    xsArraySetInt(gAttritionClasses, 3, cMonkClassId);
+    xsArraySetInt(gAttritionClasses, 4, cWarDogClassId);
+    xsArraySetInt(gAttritionClasses, 5, cPetardClassId);
+    xsArraySetInt(gAttritionClasses, 6, cHandCannoneerClassId);
+    xsArraySetInt(gAttritionClasses, 7, cPackedSiegeClassId);
+    xsArraySetInt(gAttritionClasses, 8, cUnpackedSiegeClassId);
+    xsArraySetInt(gAttritionClasses, 9, cScorpionClassId);
+}
+
+// Per-player values every rule needs, read once per rule instead of once per
+// building or unit (synced game state only).
+void hlRefreshPlayers() {
+    for (p = 1; <= hlLastPlayer()) {
+        xsArraySetBool(gIsComputer, p, xsGetPlayerType(p) == cPlayerTypeComputerId);
+        xsArraySetBool(gRulesOn, p, xsPlayerAttribute(p, cAttributeCurrentAge) >= cAgeCastle);
+        float bonus = 0.0;
+        if (hlTechDone(p, cPavedRoadsTech)) {
+            bonus = cPavedRoadsRadiusBonus;
+        }
+        xsArraySetFloat(gPalaceR, p, cPalaceRadius + bonus);
+        xsArraySetFloat(gTcR, p, cTownCenterRadius + bonus);
+        int palace = xsArrayGetInt(gPalaceIds, p);
+        if (palace >= 0) {
+            xsArraySetVector(gPalacePos, p, xsGetUnitPosition(palace));
+        }
+    }
+}
+
+// Every rule starts here.
+void hlBeginTick() {
+    hlEnsureInit();
+    hlRefreshPlayers();
 }
 
 // ---------------------------------------------------------------------------
@@ -677,11 +797,14 @@ rule hlTrackPalaces
     minInterval 1
     maxInterval 1
 {
-    hlEnsureInit();
+    hlBeginTick();
     if (cPalaceId < 0) {
         return;
     }
     for (p = 1; <= hlLastPlayer()) {
+        if (hlIsComputer(p)) {
+            continue;
+        }
         int palaces = xsGetPlayerUnitIds(p, cPalaceId, gScratch);
         int n = xsArrayGetSize(palaces);
         int palace = -1;
@@ -689,6 +812,9 @@ rule hlTrackPalaces
             palace = xsArrayGetInt(palaces, 0);
         }
         xsArraySetInt(gPalaceIds, p, palace);
+        if (palace >= 0) {
+            xsArraySetVector(gPalacePos, p, xsGetUnitPosition(palace));
+        }
 
         int state = xsArrayGetInt(gPalaceBuildable, p);
         if ((n > 0) && (state != 0)) {
@@ -717,9 +843,12 @@ rule hlRegisterBuildings
     minInterval 5
     maxInterval 5
 {
-    hlEnsureInit();
+    hlBeginTick();
     int types = xsArrayGetSize(gRegisterTypes);
     for (p = 1; <= hlLastPlayer()) {
+        if (hlIsComputer(p)) {
+            continue;   // AI buildings never need supply
+        }
         for (t = 0; < types) {
             int objectId = xsArrayGetInt(gRegisterTypes, t);
             if ((objectId == cOutpostId) && (hlCivVariant(p, cOutpostId) < 0)) {
@@ -745,6 +874,7 @@ rule hlRegisterBuildings
                 xsArraySetInt(gBuildingCover, gBuildingCount, cCoverNone);
                 xsArraySetInt(gBuildingTries, gBuildingCount, 0);
                 xsArraySetInt(gBuildingLive, gBuildingCount, -1);
+                xsArraySetInt(gBuildingShown, gBuildingCount, -1);
                 if ((objectId == cTownCenterId) || (objectId == cEconomicTownCenterId) ||
                     (objectId == cDefensiveTownCenterId) || (objectId == cMilitaryTownCenterId)) {
                     xsArraySetInt(gBuildingIsTc, gBuildingCount, 1);
@@ -761,7 +891,7 @@ rule hlSupplyTick
     minInterval 1
     maxInterval 1
 {
-    hlEnsureInit();
+    hlBeginTick();
     hlRebuildSources();
     int i = 0;
     while (i < gBuildingCount) {
@@ -782,10 +912,25 @@ rule hlSupplyTick
             xsArraySetInt(gBuildingCover, i, xsArrayGetInt(gBuildingCover, last));
             xsArraySetInt(gBuildingTries, i, xsArrayGetInt(gBuildingTries, last));
             xsArraySetInt(gBuildingLive, i, xsArrayGetInt(gBuildingLive, last));
+            xsArraySetInt(gBuildingShown, i, xsArrayGetInt(gBuildingShown, last));
             gBuildingCount--;
             continue;
         }
         int owner = xsGetUnitOwner(id);
+        if (hlIsComputer(owner)) {
+            // Converted to (or taken over by) the AI: back to normal, no caption.
+            // Full supply and a clean state, so a human who converts it back
+            // starts a normal countdown (not an instant dark outpost).
+            if (xsArrayGetInt(gBuildingLocked, i) == 1) {
+                hlSetBuildingLocked(i, false);
+            }
+            xsArraySetInt(gBuildingSupply, i, hlSupplyCap(i));
+            xsArraySetInt(gBuildingCover, i, cCoverNone);
+            xsArraySetInt(gBuildingTries, i, 0);
+            hlUpdateCaption(i, true);
+            i++;
+            continue;
+        }
         int s = xsArrayGetInt(gBuildingSupply, i);
         if (xsArrayGetInt(gBuildingReady, i) == 0) {
             if (hlIsBuilt(i) == false) {
@@ -838,6 +983,25 @@ rule hlSupplyTick
         }
         i++;
     }
+}
+
+// Gold a delivery to a TC at `tcPos` earns on top of the cart's own gold:
+// Provincial Governors +5; Colonial Administration +5 per map-scaled 10 tiles
+// between the Palace and the TC (decision 2026-10-20). The two add up.
+float hlDeliveryProfit(int p = -1, vector tcPos = vector(0, 0, 0)) {
+    float profit = 0.0;
+    if (hlTechDone(p, cProvincialGovernorsTech)) {
+        profit = profit + cProvincialGovernorsGold;
+    }
+    if (hlTechDone(p, cColonialAdministrationTech) && (xsArrayGetInt(gPalaceIds, p) >= 0)) {
+        float stepTiles = hlMapScaled(cColonialStepTiles);
+        float steps = floor(dist(xsArrayGetVector(gPalacePos, p), tcPos) / stepTiles);
+        if (steps > cColonialMaxSteps) {
+            steps = cColonialMaxSteps;
+        }
+        profit = profit + steps * cColonialGoldPerStep;
+    }
+    return (profit);
 }
 
 // Load at the Palace, deliver to the nearest non-full recipient where the cart
@@ -902,16 +1066,18 @@ void hlCartTick(int p = -1, int cart = -1, bool isLoadedType = false) {
     }
     int target = -1;
     float targetDist = 9999.0;
+    // Cheapest filter first: full buildings are skipped from the arrays alone,
+    // since carts parked by an army (attrition) count as stopped every second.
     for (b = 0; < gBuildingCount) {
+        if (xsArrayGetInt(gBuildingSupply, b) >= hlSupplyCap(b)) {
+            continue;
+        }
         int building = xsArrayGetInt(gBuildingIds, b);
         if (xsGetUnitOwner(building) != p) {
             continue;
         }
         float toBuilding = dist(cartPos, xsGetUnitPosition(building));
         if ((toBuilding > cCartDeliveryRange) || (toBuilding >= targetDist)) {
-            continue;
-        }
-        if (xsArrayGetInt(gBuildingSupply, b) >= hlSupplyCap(b)) {
             continue;
         }
         target = b;
@@ -925,9 +1091,15 @@ void hlCartTick(int p = -1, int cart = -1, bool isLoadedType = false) {
         s = hlSupplyCap(target);
     }
     xsArraySetInt(gBuildingSupply, target, s);
-    // No gold here: removing the loaded cart in hlSwapCart fires its task 161
-    // refund with no killer, which pays its current owner cCartGold (playtest
-    // 2026-10-14: an XS refund on top paid 2x).
+    // No cCartGold here: removing the loaded cart in hlSwapCart fires its task
+    // 161 refund with no killer, which pays its current owner cCartGold
+    // (playtest 2026-10-14: an XS refund on top paid 2x). Only the techs' profit.
+    if (xsArrayGetInt(gBuildingIsTc, target) == 1) {
+        float profit = hlDeliveryProfit(p, xsGetUnitPosition(xsArrayGetInt(gBuildingIds, target)));
+        if (profit > 0.0) {
+            xsSetPlayerAttribute(p, cAttributeGold, xsPlayerAttribute(p, cAttributeGold) + profit);
+        }
+    }
     xsArraySetInt(gCartRoute, ci, xsArrayGetInt(gBuildingIds, target));
     int empty = hlSwapCart(ci, cart, p, false);
     if (palace >= 0) {
@@ -940,12 +1112,15 @@ rule hlCartLogistics
     minInterval 1
     maxInterval 1
 {
-    hlEnsureInit();
+    hlBeginTick();
     if ((cSupplyCartId < 0) || (cLoadedSupplyCartId < 0)) {
         return;
     }
     hlSweepCarts();
     for (p = 1; <= hlLastPlayer()) {
+        if (hlIsComputer(p)) {
+            continue;
+        }
         // Both lists first: swaps during the tick must not be seen twice.
         int empties = xsGetPlayerUnitIds(p, cSupplyCartId, gEmptyCarts);
         int loadeds = xsGetPlayerUnitIds(p, cLoadedSupplyCartId, gLoadedCarts);
@@ -960,6 +1135,119 @@ rule hlCartLogistics
     }
 }
 
+// Finished TCs of a player; with suppliedOnly, only those with supply left
+// (the player's active sources). Both come from the last hlRebuildSources.
+int hlCountTownCenters(int p = -1, bool suppliedOnly = false) {
+    if (suppliedOnly) {
+        return (xsArrayGetInt(gSourceEnd, p) - xsArrayGetInt(gSourceStart, p));
+    }
+    return (xsArrayGetInt(gTcCount, p));
+}
+
+// Palace tech incomes, paid every second (palace_techs.py). Each government
+// tech replaces the one before it, so only the newest pays: Centralized
+// Government +150 gold/min with at most 1 TC; else Decentralized Government
+// +20 gold/min per supplied TC; else Feudal Taxation +5 food/min per villager.
+rule hlPalaceIncome
+    active
+    minInterval 1
+    maxInterval 1
+{
+    hlBeginTick();
+    for (p = 1; <= hlLastPlayer()) {
+        if (hlIsComputer(p)) {
+            continue;
+        }
+        if (hlTechDone(p, cCentralizedGovernmentTech)) {
+            if (hlCountTownCenters(p, false) <= cCentralizedMaxTownCenters) {
+                xsSetPlayerAttribute(p, cAttributeGold, xsPlayerAttribute(p, cAttributeGold) + cCentralizedGold / 60.0);
+            }
+        } else if (hlTechDone(p, cDecentralizedGovernmentTech)) {
+            float tcs = hlCountTownCenters(p, true);
+            if (tcs > 0.0) {
+                xsSetPlayerAttribute(p, cAttributeGold, xsPlayerAttribute(p, cAttributeGold) + tcs * cDecentralizedGoldPerTc / 60.0);
+            }
+        } else if (hlTechDone(p, cFeudalTaxationTech)) {
+            // TODO(test T36): xsGetPlayerUnitIds with a class ID (904 = villagers).
+            float villagers = xsArrayGetSize(xsGetPlayerUnitIds(p, cVillagerClassId, gScratch));
+            if (villagers > 0.0) {
+                xsSetPlayerAttribute(p, cResFood, xsPlayerAttribute(p, cResFood) + villagers * cFeudalTaxationFoodPerVillager / 60.0);
+            }
+        }
+    }
+}
+
+// Attrition (decision 2026-10-20): from Castle Age, each non-cavalry military
+// unit outside its owner's supply radii (Palace, supplied TCs; hlCoverType)
+// and farther than cAttritionCartRadius from one of the owner's loaded Supply
+// Carts loses cAttritionPercent of its max HP every 2 s. Garrisoned units are
+// sheltered. TODO(test T37): does HP 0 kill the unit? If it is still there
+// next tick, it is removed, wherever it stands by then. Needs the data mod
+// (Palace and carts); without it no player could ever be supplied.
+// Unverified: xsGetGarrisonedInUnitId returns < 0 when not garrisoned.
+rule hlAttrition
+    active
+    minInterval 2
+    maxInterval 2
+{
+    hlBeginTick();
+    if ((cPalaceId < 0) || (cLoadedSupplyCartId < 0)) {
+        return;
+    }
+    int classes = xsArrayGetSize(gAttritionClasses);
+    for (p = 1; <= hlLastPlayer()) {
+        if (hlIsComputer(p) || (hlSupplyRulesOn(p) == false)) {
+            continue;
+        }
+        // Loaded-cart positions once per player, not once per unit.
+        int carts = xsGetPlayerUnitIds(p, cLoadedSupplyCartId, gAttritionCarts);
+        int nc = xsArrayGetSize(carts);
+        if (nc > cMaxTrackedCarts) {
+            nc = cMaxTrackedCarts;
+        }
+        for (c = 0; < nc) {
+            xsArraySetVector(gAttritionCartPos, c, xsGetUnitPosition(xsArrayGetInt(carts, c)));
+        }
+        for (t = 0; < classes) {
+            int units = xsGetPlayerUnitIds(p, xsArrayGetInt(gAttritionClasses, t), gAttritionUnits);
+            int n = xsArrayGetSize(units);
+            for (u = 0; < n) {
+                int id = xsArrayGetInt(units, u);
+                if (xsGetGarrisonedInUnitId(id) >= 0) {
+                    continue;
+                }
+                float hp = xsGetUnitHitpoints(id);
+                if (hp <= 0.0) {
+                    // Set to 0 last tick and still here: before the cover and
+                    // cart checks, so walking into supply cannot save it.
+                    xsRemoveUnit(id);
+                    continue;
+                }
+                vector pos = xsGetUnitPosition(id);
+                if (hlCoverType(p, pos, false) != cCoverNone) {
+                    continue;
+                }
+                bool nearCart = false;
+                for (c = 0; < nc) {
+                    if (dist(xsArrayGetVector(gAttritionCartPos, c), pos) <= cAttritionCartRadius) {
+                        nearCart = true;
+                        break;
+                    }
+                }
+                if (nearCart) {
+                    continue;
+                }
+                float maxHp = xsGetObjectAttribute(p, xsGetUnitObjectId(id), cHitpoints, 0);
+                hp = hp - maxHp * cAttritionPercent / 100.0;
+                if (hp < 0.0) {
+                    hp = 0.0;
+                }
+                xsSetUnitHitpoints(id, hp);
+            }
+        }
+    }
+}
+
 // Food upkeep: military pop x rate per second (resources are floats).
 // At 0 food the starvation debuff applies to every unit (design section 5).
 // TODO(slice 7): starvation debuff once the aura/debuff layer (slice 5) exists.
@@ -968,8 +1256,11 @@ rule hlFoodUpkeep
     minInterval 1
     maxInterval 1
 {
-    hlEnsureInit();
+    hlBeginTick();
     for (p = 1; <= hlLastPlayer()) {
+        if (hlIsComputer(p)) {
+            continue;
+        }
         float cost = xsPlayerAttribute(p, cResMilitaryPop) * cFoodUpkeepPerUnitPerSecond;
         float food = xsPlayerAttribute(p, cResFood);
         if (food <= cost) {

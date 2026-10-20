@@ -23,7 +23,9 @@ def test_our_xs_has_no_main():
     # Appended to the game's auto-included Effects.xs, so a main() would clash.
     src = (assemble.SRC_XS / "Hinterland" / "main.xs").read_text(encoding="utf-8")
     assert not re.search(r"^\s*void\s+main\s*\(", src, re.MULTILINE)
-    assert src.count("hlEnsureInit();") == src.count("\nrule hl")
+    # Every rule starts with hlBeginTick(), which runs hlEnsureInit() first.
+    assert src.count("hlBeginTick();") == src.count("\nrule hl")
+    assert "void hlBeginTick() {\n    hlEnsureInit();" in src.replace("\r\n", "\n")
 
 
 def test_effects_xs_is_vanilla_plus_ours(tmp_path):

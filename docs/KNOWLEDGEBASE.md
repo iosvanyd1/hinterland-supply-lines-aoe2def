@@ -74,6 +74,7 @@ IDs below are for that build. Re-check them after a game patch.
 - Enable a unit: effect command type 2, `a = unit`, `b = 1`, appended to the age tech's effect. [game]
 - Armor change effect: type 4, attribute 8, `d = ±(class*256 + value)`; armor class 4 = melee, 3 = pierce (vanilla Masonry uses `-1025` / `-769` for −1). [data]
 - Speed multiply: type 5, attribute 5, `a = -1`, `b = class`, `d = factor`. [game]
+- A tech (genieutils 0.1.2, dat 8.9) has `research_locations` (building, time, button, hotkey), up to 6 `required_techs` with `required_tech_count` of them needed, and `effect_id` into `data.effects`. Tech strings follow the unit pattern: name N, "Research" N+1000, help N+100000 (shows N+21000), tech tree N+150000 (shows N+71000); Wheelbarrow 7211/8211/107211/157211. An upgrade line (Wheelbarrow -> Hand Cart) shares a button and the later tech requires the earlier. [data]
 
 **The Wonder**
 - Its only task, the default one, is **action 120 "Generate Wonder Victory"**; a clone keeps starting the Wonder victory countdown until that task is removed. [game]
@@ -121,6 +122,8 @@ IDs below are for that build. Re-check them after a game patch.
 **Players**
 - `xsGetNumPlayers()` counts real players without Gaia (2 in a 2-player game): loop `for (p = 1; <= xsGetNumPlayers())`. With `<` the last player was never processed (T31). [game]
 - Current age: `xsPlayerAttribute(p, cAttributeCurrentAge)`; Castle Age = 2. [game]
+- `xsGetPlayerType(p)`: -1 none, 0 editor phantom, 1 human, 2 Gaia, 3 computer (UGC constants, Player Type). Used to exempt AI players (T35). [docs]
+- Functions taking `objectOrClassId` take a unit class as 900 + dat class (`cArcherClass` 900, `cVillagerClass` 904, `cInfantryClass` 906, `cCavalryClass` 912; UGC constants, Object Class). Used by Feudal Taxation and attrition (T36, T37). [docs]
 - `xsGetMapWidth()` returns the map width in tiles (Tiny 120: supply caps came out at 71%, T33). [game]
 - Gold: `xsPlayerAttribute(p, cAttributeGold)` / `xsSetPlayerAttribute(p, cAttributeGold, v)`. [game]
 - Block or allow building a type: `xsEffectAmount(cEnableObject, id, cAttributeDisable / cAttributeEnable, 0, p)`. Disabling a unit **before** the data enables it (Feudal Age) left it unbuildable; only disable after the data has enabled it. Re-enabling after a disable works (Palace rebuild, T16). [game]
@@ -146,5 +149,5 @@ IDs below are for that build. Re-check them after a game patch.
 - Batch files need CRLF; store them as `*.cmd -text` so a raw GitHub download keeps CRLF. Editing a `.cmd` from Python with `newline="\n"` strips CRLF again (a test checks).
 - Generating Python or text through shell heredocs mangles `\n` escapes (several broken files). Write files with the editor tool, or use plain string edits without escapes.
 - Tests must not assemble into the real `build\` (a `--no-dat` test once wiped the .dat right before a deploy); `tests/conftest.py` redirects it.
-- `gh` is not installed and Git has no push credentials here; the user pushes. Use the GitHub API (`curl api.github.com/...`) for public read-only checks.
+- `gh` is installed but not logged in, and Git has no push credentials here (2026-10-20); the user pushes and opens PRs. Use the GitHub API (`curl api.github.com/...`) for public read-only checks.
 - Builds are reproducible: the same game files give the same .dat (compare `Get-FileHash`).

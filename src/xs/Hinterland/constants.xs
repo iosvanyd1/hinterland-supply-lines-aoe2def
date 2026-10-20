@@ -122,6 +122,51 @@ extern const float cPalaceRadius = 20.0;        // tiles
 extern const float cTownCenterRadius = 12.0;    // tiles, every TC
 
 
+// ---- Palace technologies (palace_techs.py; decision 2026-10-20) ----
+// Incomes are per minute; hlPalaceIncome pays them out every second.
+extern const float cFeudalTaxationFoodPerVillager = 5.0;      // per minute
+extern const float cDecentralizedGoldPerTc = 20.0;            // per minute, per supplied TC
+extern const float cCentralizedGold = 150.0;                  // per minute
+extern const int cCentralizedMaxTownCenters = 1;
+extern const float cProvincialGovernorsGold = 5.0;            // per delivery to a TC
+// Colonial Administration: +5 gold per 10 tiles between the Palace and the TC,
+// the 10 tiles scaled by map size (hlMapScaled), at most 10 steps (+50).
+// Deliveries only reach TCs outside the Palace radius (20 tiles). Step size:
+// Tiny 7, Medium 10, Giant 14 tiles; on Medium a delivery earns at least 2 steps
+// (+10), and a TC 45 tiles out earns 4 (+20); on Giant the minimum is 1 (+5).
+extern const float cColonialGoldPerStep = 5.0;
+extern const int cColonialStepTiles = 10;
+extern const float cColonialMaxSteps = 10.0;
+extern const float cPavedRoadsRadiusBonus = 4.0;              // tiles, Palace and TCs
+
+// ---- Attrition (decision 2026-10-20) ----
+// From Castle Age, non-cavalry military units outside every supply radius and
+// farther than cAttritionCartRadius from their own loaded Supply Cart lose
+// cAttritionPercent of their max HP every 2 s (hlAttrition): ~200 s to die.
+extern const float cAttritionCartRadius = 20.0;               // tiles
+extern const float cAttritionPercent = 1.0;
+// Unit classes as XS class IDs (900 + dat class; UGC constants, Object Class).
+// Cavalry (912), cavalry archers (936), scouts (947), mounted gunpowder (923),
+// heroes and the King (959) never suffer attrition; ships are not land units;
+// monks carrying a relic (943) are spared too. Only 900/904/906/912 are cited
+// in the KB; the rest follow the same 900 + dat class rule (unverified, T37).
+extern const int cArcherClassId = 900;
+extern const int cInfantryClassId = 906;
+extern const int cSiegeClassId = 913;
+extern const int cMonkClassId = 918;
+extern const int cWarDogClassId = 928;
+extern const int cPetardClassId = 935;
+extern const int cHandCannoneerClassId = 944;
+extern const int cPackedSiegeClassId = 951;
+extern const int cUnpackedSiegeClassId = 954;
+extern const int cScorpionClassId = 955;
+extern const int cVillagerClassId = 904;
+
+// ---- AI players (decision 2026-10-20) ----
+// The AI cannot use the Palace or carts, so no XS rule touches computer players
+// (xsGetPlayerType; UGC constants, Player Type: 3 = computer).
+extern const int cPlayerTypeComputerId = 3;
+
 // ---- Ages (resource cAttributeCurrentAge; standard values, verify) ----
 extern const int cAgeCastle = 2;                // supply rules start here (design section 3)
 extern const int cAgeImperial = 3;
