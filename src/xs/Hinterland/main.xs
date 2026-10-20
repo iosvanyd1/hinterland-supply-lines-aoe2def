@@ -1493,7 +1493,9 @@ rule hlAttrition
                     continue;
                 }
                 float maxHp = xsGetObjectAttribute(p, xsGetUnitObjectId(id), cHitpoints, 0);
-                hp = hp - ceil(maxHp * cAttritionPercent / 100.0);   // whole HP, rounded up (40 HP unit: 1 per tick)
+                // Exact 1% (not rounded): the one mod value allowed a decimal
+                // (decision 2026-10-20), so every unit takes ~200 s to die.
+                hp = hp - maxHp * cAttritionPercent / 100.0;
                 if (hp < 0.0) {
                     hp = 0.0;
                 }

@@ -174,9 +174,9 @@ extern const int cDiplomacyEnemyId = 3;
 // ---- Attrition (decision 2026-10-20) ----
 // From Castle Age, non-cavalry military units outside every supply radius and
 // farther than cAttritionCartRadius from their own loaded Supply Cart lose
-// cAttritionPercent of their max HP every 2 s (hlAttrition), rounded up to whole
-// HP (no decimals, 2026-10-20): ~200 s to die at 100+ HP, faster below
-// (at least 1 HP per tick: a 40 HP archer dies in 80 s).
+// cAttritionPercent of their max HP every 2 s (hlAttrition): ~200 s to die for
+// every unit. Exact, not rounded up: the one exception to the whole-number rule
+// (decision 2026-10-20; rounding up killed 30-100 HP units 1.5-3.3x faster).
 extern const float cAttritionCartRadius = 20.0;               // tiles
 extern const float cAttritionPercent = 1.0;
 // Unit classes as XS class IDs (900 + dat class; UGC constants, Object Class).
