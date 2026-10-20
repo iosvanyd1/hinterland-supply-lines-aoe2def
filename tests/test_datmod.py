@@ -367,3 +367,28 @@ def test_palace_tech_strings_exist():
         seen.add(spec.key)
         for sid in (spec.string_name, spec.string_creation, spec.string_help, spec.string_name + 71000):
             assert f"\n{sid} " in strings, sid
+
+
+def test_build_ids_match_xsgen_defaults(built):
+    """Every XS constant the build fills is declared, and none stays at -1."""
+    from hinterland import xsgen
+
+    new_ids, _ = built
+    assert set(new_ids) == set(xsgen.DEFAULTS)
+
+
+def test_sabotage_counter_resource_unused_in_vanilla(built):
+    """Sabotage counts researches in a player resource no vanilla data touches."""
+    from genieutils.datfile import DatFile
+
+    from hinterland.datmod.patches import palace_techs
+
+    res = palace_techs.SABOTAGE_COUNTER_RESOURCE
+    data = DatFile.parse(config_vanilla_dat())
+    for effect in data.effects:
+        for c in effect.effect_commands:
+            assert not (c.type in (1, 6, 11, 16) and c.a == res), effect.name
+    for civ in data.civs:
+        assert civ.resources[res] == 0, civ.name
+    for tech in data.techs:
+        assert all(rc.type != res for rc in tech.resource_costs), tech.name

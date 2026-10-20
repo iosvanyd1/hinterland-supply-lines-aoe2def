@@ -65,6 +65,13 @@ int gOutpostTcCount = -1;
 // Per tracked building: its current max supply (hlSupplyCapFor), refreshed
 // every hlSupplyTick.
 int gBuildingCap = -1;
+// Per tracked building: position and owner as of the last hlSupplyTick (set
+// at registration too), so scans read arrays instead of the engine. Mule
+// Carts move, so the position is refreshed every tick.
+int gBuildingPos = -1;
+int gBuildingOwner = -1;
+// Locked buildings with no supply last tick; Bribe Officials scans only if > 0.
+int gDryLockedCount = 0;
 // Per player: max supply in percent of the base caps (50 + Supply Depots +
 // Military Warehouses), and whether an enemy has Siege & Starve Out.
 int gCapPercent = -1;
@@ -78,6 +85,7 @@ int gPendingKillCount = 0;
 
 // Per-player values refreshed once at the start of every rule (hlBeginTick),
 // instead of engine calls per building or unit.
+int gLastPlayer = 0;        // hlLastPlayer(), read once per rule
 int gIsComputer = -1;       // bool
 int gRulesOn = -1;          // bool: Castle Age or later
 int gPalaceR = -1;          // float: Palace supply radius (Paved Roads included)
@@ -593,6 +601,7 @@ void hlSetBuildingLocked(int index = -1, bool locked = false) {
             id = xsArrayGetInt(gBuildingIds, index);
         }
         xsSetUnitProperty(id, cUnitSelectable, 1);
+        xsArraySetInt(gBuildingTries, index, 0);
         xsArraySetInt(gBuildingLocked, index, 0);
     }
 }
@@ -676,8 +685,9 @@ void hlRebuildSources() {
         if (xsDoesUnitExist(id) == false) {
             continue;
         }
-        int owner = xsGetUnitOwner(id);
-        xsArraySetVector(gSourcePos, gSourceCount, xsGetUnitPosition(id));
+        // Cached by the last hlSupplyTick (TCs do not move; owner up to 1 s old).
+        int owner = xsArrayGetInt(gBuildingOwner, i);
+        xsArraySetVector(gSourcePos, gSourceCount, xsArrayGetVector(gBuildingPos, i));
         xsArraySetInt(gSourceOwner, gSourceCount, owner);
         gSourceCount++;
         if ((xsArrayGetInt(gBuildingCover, i) != cCoverPalace) && (owner >= 0) && (owner < cMaxPlayers)) {
@@ -804,6 +814,8 @@ void hlEnsureInit() {
     xsArraySetInt(gAttritionClasses, 8, cUnpackedSiegeClassId);
     xsArraySetInt(gAttritionClasses, 9, cScorpionClassId);
     gBuildingCap = xsArrayCreateInt(cMaxTrackedBuildings, 0, "hlBuildingCap");
+    gBuildingPos = xsArrayCreateVector(cMaxTrackedBuildings, vector(-1, -1, -1), "hlBuildingPos");
+    gBuildingOwner = xsArrayCreateInt(cMaxTrackedBuildings, -1, "hlBuildingOwner");
     gCapPercent = xsArrayCreateInt(cMaxPlayers, cSupplyCapBasePercent, "hlCapPercent");
     gEnemySiegeStarve = xsArrayCreateBool(cMaxPlayers, false, "hlEnemySiegeStarve");
     gSabotageSeen = xsArrayCreateFloat(cMaxPlayers, 0.0, "hlSabotageSeen");
@@ -811,7 +823,7 @@ void hlEnsureInit() {
     // Sabotage & Subterfuge can be researched again and again (tech stacking;
     // TODO(test T42): cModifyTech + cAttrSetStacking makes it re-researchable).
     if (cSabotageTech >= 0) {
-        for (p = 1; <= hlLastPlayer()) {
+        for (p = 1; <= hlLastPlayer()) {   // runs before the first hlRefreshPlayers
             xsEffectAmount(cModifyTech, cSabotageTech, cAttrSetStacking, 1, p);
             xsEffectAmount(cModifyTech, cSabotageTech, cAttrSetStackingResearchCap, cSabotageMaxUses, p);
         }
@@ -822,6 +834,7 @@ void hlEnsureInit() {
 // building or unit (synced game state only).
 void hlRefreshPlayers() {
     int last = hlLastPlayer();
+    gLastPlayer = last;
     for (p = 1; <= last) {
         xsArraySetBool(gIsComputer, p, xsGetPlayerType(p) == cPlayerTypeComputerId);
         xsArraySetBool(gRulesOn, p, xsPlayerAttribute(p, cAttributeCurrentAge) >= cAgeCastle);
@@ -835,9 +848,11 @@ void hlRefreshPlayers() {
         }
         xsArraySetFloat(gPalaceR, p, cPalaceRadius + palaceBonus);
         xsArraySetFloat(gTcR, p, cTownCenterRadius + bonus);
+        // A Palace does not move: hlTrackPalaces stores its position. Here
+        // only drop one destroyed since then (rule order is unknown).
         int palace = xsArrayGetInt(gPalaceIds, p);
-        if (palace >= 0) {
-            xsArraySetVector(gPalacePos, p, xsGetUnitPosition(palace));
+        if ((palace >= 0) && (xsDoesUnitExist(palace) == false)) {
+            xsArraySetInt(gPalaceIds, p, -1);
         }
         int capPercent = cSupplyCapBasePercent;
         if (hlTechDone(p, cSupplyDepotsTech)) {
@@ -890,15 +905,23 @@ rule hlTrackPalaces
     if (cPalaceId < 0) {
         return;
     }
-    for (p = 1; <= hlLastPlayer()) {
+    for (p = 1; <= gLastPlayer) {
         if (hlIsComputer(p)) {
             continue;
         }
         int palaces = xsGetPlayerUnitIds(p, cPalaceId, gScratch);
         int n = xsArrayGetSize(palaces);
+        // Only a finished Palace is the capital (review 2026-10-20: the list
+        // includes foundations, and a foundation gave supply radius, cart
+        // loading and tech income, then could be deleted for a refund). The
+        // build block below still counts foundations. Build check as in T18.
         int palace = -1;
         if (n > 0) {
-            palace = xsArrayGetInt(palaces, 0);
+            int candidate = xsArrayGetInt(palaces, 0);
+            float points = xsGetUnitProperty(candidate, cUnitBuildpoints, p);
+            if (points >= xsGetObjectAttribute(p, cPalaceId, cTrainTime, 0)) {
+                palace = candidate;
+            }
         }
         xsArraySetInt(gPalaceIds, p, palace);
         if (palace >= 0) {
@@ -934,7 +957,7 @@ rule hlRegisterBuildings
 {
     hlBeginTick();
     int types = xsArrayGetSize(gRegisterTypes);
-    for (p = 1; <= hlLastPlayer()) {
+    for (p = 1; <= gLastPlayer) {
         if (hlIsComputer(p)) {
             continue;   // AI buildings never need supply
         }
@@ -969,6 +992,8 @@ rule hlRegisterBuildings
                     xsArraySetInt(gBuildingIsTc, gBuildingCount, 1);
                 }
                 xsArraySetInt(gBuildingCap, gBuildingCount, hlSupplyCapFor(gBuildingCount, p));
+                xsArraySetVector(gBuildingPos, gBuildingCount, xsGetUnitPosition(id));
+                xsArraySetInt(gBuildingOwner, gBuildingCount, p);
                 gBuildingCount++;
             }
         }
@@ -983,6 +1008,7 @@ rule hlSupplyTick
 {
     hlBeginTick();
     hlRebuildSources();
+    int dryLocked = 0;
     int i = 0;
     while (i < gBuildingCount) {
         int id = xsArrayGetInt(gBuildingIds, i);
@@ -1004,10 +1030,15 @@ rule hlSupplyTick
             xsArraySetInt(gBuildingLive, i, xsArrayGetInt(gBuildingLive, last));
             xsArraySetInt(gBuildingShown, i, xsArrayGetInt(gBuildingShown, last));
             xsArraySetInt(gBuildingCap, i, xsArrayGetInt(gBuildingCap, last));
+            xsArraySetVector(gBuildingPos, i, xsArrayGetVector(gBuildingPos, last));
+            xsArraySetInt(gBuildingOwner, i, xsArrayGetInt(gBuildingOwner, last));
             gBuildingCount--;
             continue;
         }
         int owner = xsGetUnitOwner(id);
+        vector pos = xsGetUnitPosition(id);
+        xsArraySetInt(gBuildingOwner, i, owner);
+        xsArraySetVector(gBuildingPos, i, pos);
         xsArraySetInt(gBuildingCap, i, hlSupplyCapFor(i, owner));
         if (hlIsComputer(owner)) {
             // Converted to (or taken over by) the AI: back to normal, no caption.
@@ -1034,7 +1065,7 @@ rule hlSupplyTick
         int cover = cCoverPalace;   // before Castle Age everything counts as covered
         if (hlSupplyRulesOn(owner)) {
             bool isTc = (xsArrayGetInt(gBuildingIsTc, i) == 1);
-            cover = hlCoverType(owner, xsGetUnitPosition(id), isTc);
+            cover = hlCoverType(owner, pos, isTc);
         }
         bool covered = (cover != cCoverNone);
         if (covered) {
@@ -1063,6 +1094,10 @@ rule hlSupplyTick
             hlSetBuildingLocked(i, true);
         } else if ((s > 0) && locked) {
             hlSetBuildingLocked(i, false);
+        } else if ((s > 0) && (xsArrayGetInt(gBuildingTries, i) > 0)) {
+            // Refilled while part-way into going dark (still unlocked): start
+            // over, so the next dry spell cancels and refunds the queue first.
+            xsArraySetInt(gBuildingTries, i, 0);
         } else if (locked && (xsArrayGetInt(gBuildingLive, i) >= 0)) {
             // An age-up does not upgrade a dark twin. Playtest 2026-10-15: a dark
             // Castle Age TC vanished from view at the Imperial age-up (still
@@ -1100,8 +1135,12 @@ rule hlSupplyTick
         if (hlSupplyRulesOn(owner)) {
             hlUpdateCaption(i, covered);
         }
+        if ((s <= 0) && (xsArrayGetInt(gBuildingLocked, i) == 1)) {
+            dryLocked++;
+        }
         i++;
     }
+    gDryLockedCount = dryLocked;
 }
 
 // Gold a delivery to a TC at `tcPos` earns on top of the cart's own gold:
@@ -1132,17 +1171,18 @@ float hlDeliveryProfit(int p = -1, vector tcPos = vector(0, 0, 0)) {
 void hlBribe(int p = -1, int ci = -1, int cart = -1, vector cartPos = vector(0, 0, 0)) {
     int target = -1;
     float targetDist = 9999.0;
+    // Arrays first (position and owner cached by hlSupplyTick); diplomacy only
+    // for buildings in range.
     for (b = 0; < gBuildingCount) {
         if ((xsArrayGetInt(gBuildingLocked, b) == 0) || (xsArrayGetInt(gBuildingSupply, b) > 0)) {
             continue;
         }
-        int building = xsArrayGetInt(gBuildingIds, b);
-        int owner = xsGetUnitOwner(building);
-        if ((owner == p) || hlIsComputer(owner) || (hlIsEnemy(p, owner) == false)) {
+        float toBuilding = dist(cartPos, xsArrayGetVector(gBuildingPos, b));
+        if ((toBuilding > cCartDeliveryRange) || (toBuilding >= targetDist)) {
             continue;
         }
-        float toBuilding = dist(cartPos, xsGetUnitPosition(building));
-        if ((toBuilding > cCartDeliveryRange) || (toBuilding >= targetDist)) {
+        int owner = xsArrayGetInt(gBuildingOwner, b);
+        if ((owner == p) || hlIsComputer(owner) || (hlIsEnemy(p, owner) == false)) {
             continue;
         }
         target = b;
@@ -1153,6 +1193,9 @@ void hlBribe(int p = -1, int ci = -1, int cart = -1, vector cartPos = vector(0, 
     }
     int id = xsArrayGetInt(gBuildingIds, target);
     int victim = xsGetUnitOwner(id);
+    if ((xsDoesUnitExist(id) == false) || (victim == p) || (hlIsEnemy(p, victim) == false)) {
+        return;     // changed hands or died since the last tick
+    }
     xsSetUnitOwner(id, p, true);
     // Still locked: next hlSupplyTick sees supply > 0 and unlocks it for p.
     int cap = hlSupplyCapFor(target, p);
@@ -1165,6 +1208,7 @@ void hlBribe(int p = -1, int ci = -1, int cart = -1, vector cartPos = vector(0, 
     xsArraySetInt(gBuildingCover, target, cCoverNone);
     xsArraySetInt(gBuildingTries, target, 0);
     xsArraySetInt(gBuildingShown, target, -1);
+    xsArraySetInt(gBuildingOwner, target, p);
     xsChatData("Bribe Officials: player " + p + " bought a building of player " + victim, p);
     xsArraySetInt(gCartRoute, ci, -1);
     int empty = hlSwapCart(ci, cart, p, false);
@@ -1248,19 +1292,23 @@ void hlCartTick(int p = -1, int cart = -1, bool isLoadedType = false) {
             // placed again (exploit review 2026-10-20).
             continue;
         }
-        int building = xsArrayGetInt(gBuildingIds, b);
-        if (xsGetUnitOwner(building) != p) {
+        // Position and owner cached by hlSupplyTick (review 2026-10-20);
+        // the chosen building's owner is confirmed below.
+        if (xsArrayGetInt(gBuildingOwner, b) != p) {
             continue;
         }
-        float toBuilding = dist(cartPos, xsGetUnitPosition(building));
+        float toBuilding = dist(cartPos, xsArrayGetVector(gBuildingPos, b));
         if ((toBuilding > cCartDeliveryRange) || (toBuilding >= targetDist)) {
             continue;
         }
         target = b;
         targetDist = toBuilding;
     }
+    if ((target >= 0) && (xsGetUnitOwner(xsArrayGetInt(gBuildingIds, target)) != p)) {
+        return;     // converted away since the last tick; try again next second
+    }
     if (target < 0) {
-        if (hlTechDone(p, cBribeOfficialsTech)) {
+        if ((gDryLockedCount > 0) && hlTechDone(p, cBribeOfficialsTech)) {
             hlBribe(p, ci, cart, cartPos);
         }
         return;
@@ -1303,7 +1351,7 @@ rule hlCartLogistics
         return;
     }
     hlSweepCarts();
-    for (p = 1; <= hlLastPlayer()) {
+    for (p = 1; <= gLastPlayer) {
         if (hlIsComputer(p)) {
             continue;
         }
@@ -1334,7 +1382,7 @@ rule hlPalaceIncome
     maxInterval 1
 {
     hlBeginTick();
-    for (p = 1; <= hlLastPlayer()) {
+    for (p = 1; <= gLastPlayer) {
         // No Palace, no income: the techs are the Palace's (exploit review
         // 2026-10-20; they kept paying after the Palace fell).
         if (hlIsComputer(p) || (xsArrayGetInt(gPalaceIds, p) < 0)) {
@@ -1378,7 +1426,7 @@ rule hlAttrition
         return;
     }
     int classes = xsArrayGetSize(gAttritionClasses);
-    for (p = 1; <= hlLastPlayer()) {
+    for (p = 1; <= gLastPlayer) {
         if (hlIsComputer(p) || (hlSupplyRulesOn(p) == false)) {
             continue;
         }
@@ -1450,25 +1498,27 @@ bool hlSabotageTc(int p = -1, int b = -1) {
     if ((xsArrayGetInt(gBuildingSupply, b) <= 0) || (xsArrayGetInt(gBuildingCover, b) == cCoverPalace)) {
         return (false);
     }
-    int owner = xsGetUnitOwner(xsArrayGetInt(gBuildingIds, b));
+    int owner = xsArrayGetInt(gBuildingOwner, b);
     return ((owner != p) && (hlIsComputer(owner) == false) && hlIsEnemy(p, owner));
 }
 
 // One use of Sabotage & Subterfuge by player p: kill a random Supply Cart
 // (empty or loaded) of p's enemies; if they have none, drain a random enemy
 // TC that is not inside its own Palace radius (one there refills at once).
+// Carts already set to 0 HP (an earlier use this second, if HP 0 does not kill
+// at once) are skipped, so a paid use never hits the same cart twice.
+// TODO(test T42): xsGetRandomNumberMax is synced in multiplayer (unverified).
 void hlSabotageOnce(int p = -1) {
-    int last = hlLastPlayer();
+    int last = gLastPlayer;
     int total = 0;
-    for (q = 1; <= last) {
-        if ((q == p) || hlIsComputer(q) || (hlIsEnemy(p, q) == false)) {
-            continue;
+    for (pass = 0; < 2) {
+        int pick = -1;
+        if (pass == 1) {
+            if (total == 0) {
+                break;
+            }
+            pick = xsGetRandomNumberMax(total);
         }
-        total = total + xsArrayGetSize(xsGetPlayerUnitIds(q, cSupplyCartId, gScratch));
-        total = total + xsArrayGetSize(xsGetPlayerUnitIds(q, cLoadedSupplyCartId, gScratch));
-    }
-    if (total > 0) {
-        int pick = xsGetRandomNumberMax(total);
         for (q = 1; <= last) {
             if ((q == p) || hlIsComputer(q) || (hlIsEnemy(p, q) == false)) {
                 continue;
@@ -1480,14 +1530,25 @@ void hlSabotageOnce(int p = -1) {
                 }
                 int carts = xsGetPlayerUnitIds(q, objectId, gScratch);
                 int n = xsArrayGetSize(carts);
-                if (pick < n) {
-                    hlKillUnit(xsArrayGetInt(carts, pick));
-                    xsChatData("Sabotage: player " + p + " destroyed a Supply Cart of player " + q, p);
-                    return;
+                for (c = 0; < n) {
+                    int cart = xsArrayGetInt(carts, c);
+                    if (xsGetUnitHitpoints(cart) <= 0.0) {
+                        continue;
+                    }
+                    if (pass == 0) {
+                        total++;
+                    } else if (pick == 0) {
+                        hlKillUnit(cart);
+                        xsChatData("Sabotage: player " + p + " destroyed a Supply Cart of player " + q, p);
+                        return;
+                    } else {
+                        pick--;
+                    }
                 }
-                pick = pick - n;
             }
         }
+    }
+    if (total > 0) {
         return;
     }
     int tcs = 0;
@@ -1536,11 +1597,14 @@ rule hlSabotage
         return;
     }
     bool priced = false;
-    for (p = 1; <= hlLastPlayer()) {
+    for (p = 1; <= gLastPlayer) {
         if (hlIsComputer(p)) {
             continue;
         }
         float used = xsPlayerAttribute(p, cSabotageCounterRes);
+        if (used > cSabotageMaxUses) {
+            used = cSabotageMaxUses;    // a stray value cannot trigger a burst
+        }
         float seen = xsArrayGetFloat(gSabotageSeen, p);
         while (seen < used) {
             hlSabotageOnce(p);
@@ -1551,7 +1615,7 @@ rule hlSabotage
         xsArraySetFloat(gSabotageSeen, p, seen);
     }
     if (priced) {
-        for (p = 1; <= hlLastPlayer()) {
+        for (p = 1; <= gLastPlayer) {
             xsEffectAmount(cModifyTech, cSabotageTech, cAttrSetFoodCost,
                            cSabotageBaseFood + gSabotageUses * cSabotageStepFood, p);
             xsEffectAmount(cModifyTech, cSabotageTech, cAttrSetGoldCost,
@@ -1569,7 +1633,7 @@ rule hlFoodUpkeep
     maxInterval 1
 {
     hlBeginTick();
-    for (p = 1; <= hlLastPlayer()) {
+    for (p = 1; <= gLastPlayer) {
         if (hlIsComputer(p)) {
             continue;
         }

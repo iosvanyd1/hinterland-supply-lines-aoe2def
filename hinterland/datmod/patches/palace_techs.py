@@ -122,7 +122,7 @@ def _configure(tech, spec: PalaceTech, palace_id: int, effect_id: int, required:
     tech.language_dll_help = spec.string_help + HELP_ID_OFFSET
     tech.language_dll_tech_tree = spec.string_name + TECH_TREE_OFFSET
     if spec.counter_resource is not None:
-        tech.repeatable = 1     # meaning unverified; XS also enables stacking at runtime
+        tech.repeatable = 1     # cosmetic: 1188 vanilla techs set it (Loom too); repeats come only from XS stacking (T42)
     costs = list(spec.costs) + [(-1, 0)] * (3 - len(spec.costs))
     for slot, (res, amount) in zip(tech.resource_costs, costs):
         slot.type, slot.amount, slot.flag = res, amount, 1 if res >= 0 else 0
