@@ -127,7 +127,7 @@ extern const float cTownCenterRadius = 12.0;    // tiles, every TC
 // accrue (hlPayWhole), so the exact per-minute rate holds.
 // Decision 2026-10-20: every gold yield halved, so the techs ease the cost of
 // supply lines instead of becoming an economic engine of their own.
-// Decision 2026-10-20: no decimal numbers anywhere in the game; any value that
+// Decision 2026-10-20: no decimal numbers in any value the mod adds; any one that
 // would be fractional is rounded UP to the next whole number (2.5 -> 3).
 extern const float cFeudalTaxationFoodPerVillager = 5.0;      // per minute
 extern const float cFeudalTaxationMaxVillagers = 30.0;        // only the first 30 count (2026-10-20): max 150 food/min

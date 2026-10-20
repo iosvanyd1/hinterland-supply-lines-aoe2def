@@ -46,7 +46,7 @@ def test_supply_cap_techs_reach_full_cap():
 
 
 def test_no_decimal_numbers_in_tooltips():
-    """Decision 2026-10-20: no decimal numbers anywhere in the game (round up)."""
+    """Decision 2026-10-20: no decimal numbers in any value the mod adds (round up)."""
     from hinterland import SRC_STRINGS
 
     strings = (SRC_STRINGS / "en" / "key-value-modded-strings-utf8.txt").read_text(encoding="utf-8")

@@ -231,7 +231,7 @@ void hlSetSlot(int map = -1, int unitId = -1, int slot = -1) {
     xsArraySetInt(map, unitId, slot + 1);
 }
 
-// value * percent / 100 rounded UP (decision 2026-10-20: no decimals anywhere,
+// value * percent / 100 rounded UP (decision 2026-10-20: no decimals in mod values,
 // always round up; plain integer division rounded down). Non-negative inputs.
 int hlPercentUp(int value = 0, int percent = 100) {
     return ((value * percent + 99) / 100);
