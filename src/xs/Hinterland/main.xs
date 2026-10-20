@@ -1090,7 +1090,7 @@ rule hlSupplyTick
 }
 
 // Gold a delivery to a TC at `tcPos` earns on top of the cart's own gold:
-// Provincial Governors +5; Colonial Administration +5 per map-scaled 20 tiles
+// Provincial Governors +2.5; Colonial Administration +2.5 per map-scaled 20 tiles
 // between the Palace and the TC (decision 2026-10-20). The two add up.
 float hlDeliveryProfit(int p = -1, vector tcPos = vector(0, 0, 0)) {
     float profit = 0.0;
@@ -1227,6 +1227,12 @@ void hlCartTick(int p = -1, int cart = -1, bool isLoadedType = false) {
         if (xsArrayGetInt(gBuildingSupply, b) >= hlSupplyCap(b)) {
             continue;
         }
+        if (xsArrayGetInt(gBuildingReady, b) == 0) {
+            // A foundation neither drains nor refills: without this, one placed
+            // by the Palace took paid deliveries and could be deleted and
+            // placed again (exploit review 2026-10-20).
+            continue;
+        }
         int building = xsArrayGetInt(gBuildingIds, b);
         if (xsGetUnitOwner(building) != p) {
             continue;
@@ -1244,16 +1250,23 @@ void hlCartTick(int p = -1, int cart = -1, bool isLoadedType = false) {
         }
         return;
     }
-    int s = xsArrayGetInt(gBuildingSupply, target) + hlMapScaled(cSupplyRefuelSeconds);
+    int refuel = hlMapScaled(cSupplyRefuelSeconds);
+    int before = xsArrayGetInt(gBuildingSupply, target);
+    int s = before + refuel;
     if (s > hlSupplyCap(target)) {
         s = hlSupplyCap(target);
     }
     xsArraySetInt(gBuildingSupply, target, s);
     // No cCartGold here: removing the loaded cart in hlSwapCart fires its task
     // 161 refund with no killer, which pays its current owner cCartGold
-    // (playtest 2026-10-14: an XS refund on top paid 2x). Only the techs' profit.
-    if (xsArrayGetInt(gBuildingIsTc, target) == 1) {
-        float profit = hlDeliveryProfit(p, xsGetUnitPosition(xsArrayGetInt(gBuildingIds, target)));
+    // (playtest 2026-10-14: an XS refund on top paid 2x). Only the techs' profit,
+    // scaled by the supply this delivery actually added (balance review
+    // 2026-10-20): a TC 1 s below its cap still takes a load, so without the
+    // scaling, many carts parked on one TC each earned the full profit about
+    // every second. Now a TC's profit is bounded by its drain, 1 s per second.
+    if ((xsArrayGetInt(gBuildingIsTc, target) == 1) && (refuel > 0)) {
+        float added = s - before;
+        float profit = hlDeliveryProfit(p, xsGetUnitPosition(xsArrayGetInt(gBuildingIds, target))) * added / refuel;
         if (profit > 0.0) {
             xsSetPlayerAttribute(p, cAttributeGold, xsPlayerAttribute(p, cAttributeGold) + profit);
         }
@@ -1302,8 +1315,8 @@ int hlSuppliedTownCenters(int p = -1) {
 
 // Palace tech incomes, paid every second (palace_techs.py). Each government
 // tech replaces the one before it, so only the newest pays: Centralized
-// Government +150 gold/min with at most 1 supplied TC; else Decentralized
-// Government +20 gold/min per supplied TC; else Feudal Taxation +5 food/min
+// Government +75 gold/min with at most 1 supplied TC; else Decentralized
+// Government +10 gold/min per supplied TC; else Feudal Taxation +5 food/min
 // per villager.
 rule hlPalaceIncome
     active
@@ -1312,7 +1325,9 @@ rule hlPalaceIncome
 {
     hlBeginTick();
     for (p = 1; <= hlLastPlayer()) {
-        if (hlIsComputer(p)) {
+        // No Palace, no income: the techs are the Palace's (exploit review
+        // 2026-10-20; they kept paying after the Palace fell).
+        if (hlIsComputer(p) || (xsArrayGetInt(gPalaceIds, p) < 0)) {
             continue;
         }
         if (hlTechDone(p, cCentralizedGovernmentTech)) {

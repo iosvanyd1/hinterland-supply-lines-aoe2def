@@ -124,19 +124,21 @@ extern const float cTownCenterRadius = 12.0;    // tiles, every TC
 
 // ---- Palace technologies (palace_techs.py; decision 2026-10-20) ----
 // Incomes are per minute; hlPalaceIncome pays them out every second.
+// Decision 2026-10-20: every gold yield halved, so the techs ease the cost of
+// supply lines instead of becoming an economic engine of their own.
 extern const float cFeudalTaxationFoodPerVillager = 5.0;      // per minute
-extern const float cDecentralizedGoldPerTc = 20.0;            // per minute, per supplied TC
-extern const float cCentralizedGold = 150.0;                  // per minute
+extern const float cDecentralizedGoldPerTc = 10.0;            // per minute, per supplied TC
+extern const float cCentralizedGold = 75.0;                   // per minute
 extern const int cCentralizedMaxTownCenters = 1;
-extern const float cProvincialGovernorsGold = 5.0;            // per delivery to a TC
-// Colonial Administration: +5 gold per 20 tiles between the Palace and the TC,
-// the 20 tiles scaled by map size (hlMapScaled), at most 10 steps (+50).
-// Recalibrated 2026-10-20 (playtest: max gold came too close): the full +50
+extern const float cProvincialGovernorsGold = 2.5;            // per delivery to a TC
+// Colonial Administration: +2.5 gold per 20 tiles between the Palace and the TC,
+// the 20 tiles scaled by map size (hlMapScaled), at most 10 steps (+25).
+// Recalibrated 2026-10-20 (playtest: max gold came too close): the full +25
 // now needs 200 tiles on Medium, double the old 100. Step size: Tiny 14,
 // Medium 20, Giant 28 tiles. Deliveries only reach TCs outside the Palace
-// radius (20 tiles), so on Medium a delivery earns at least 1 step (+5), and a
-// TC 60 tiles out earns 3 (+15).
-extern const float cColonialGoldPerStep = 5.0;
+// radius (20 tiles), so on Medium a delivery earns at least 1 step (+2.5), and a
+// TC 60 tiles out earns 3 (+7.5).
+extern const float cColonialGoldPerStep = 2.5;
 extern const int cColonialStepTiles = 20;
 extern const float cColonialMaxSteps = 10.0;
 extern const float cPavedRoadsRadiusBonus = 4.0;              // tiles, Palace and TCs
