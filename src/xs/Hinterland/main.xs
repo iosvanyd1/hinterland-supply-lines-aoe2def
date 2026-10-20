@@ -59,14 +59,12 @@ int gSourceCount = 0;
 int gSourceByOwner = -1;
 int gSourceStart = -1;
 int gSourceEnd = -1;
-// Finished TCs per player this tick (any supply), for Centralized Government.
-int gTcCount = -1;
 
 // Per tracked building: its current max supply (hlSupplyCapFor), refreshed
 // every hlSupplyTick.
 int gBuildingCap = -1;
 // Per player: max supply in percent of the base caps (50 + Supply Depots +
-// Military Warehouses), and whether an enemy has Siege & Starve.
+// Military Warehouses), and whether an enemy has Siege & Starve Out.
 int gCapPercent = -1;
 int gEnemySiegeStarve = -1;
 // Sabotage & Subterfuge: uses seen per player (its counter resource), uses by
@@ -485,7 +483,7 @@ int hlDarkType(int liveId = -1) {
 // TODO(test T25): does xsGetUnitObjectId return the upgraded type? If not, the
 // registered type plus hlUpgradedType still covers towers (T23) and age TCs.
 // Castles and Kreposts keep firing out of supply until an enemy of their owner
-// has Siege & Starve (decision 2026-10-20; Kreposts went dark always before).
+// has Siege & Starve Out (decision 2026-10-20; Kreposts went dark always before).
 int hlDarkableType(int index = -1) {
     int id = xsArrayGetInt(gBuildingIds, index);
     int owner = xsGetUnitOwner(id);
@@ -511,6 +509,14 @@ void hlCancelQueue(int id = -1) {
     xsArraySetInt(gTaskIds, 0, id);
     xsTaskUnits(gTaskIds, cActionTypeStop, vector(-1, -1, -1), -1, false, false, false, -1);
     xsStopUnit(id);
+}
+
+// Push every garrisoned unit out of building `id` (T23 passed for towers).
+void hlEjectGarrison(int id = -1) {
+    if (xsArrayGetSize(xsGetGarrisonedUnitIds(id)) > 0) {
+        xsArraySetInt(gTaskIds, 0, id);
+        xsTaskUnits(gTaskIds, cActionTypeUngarrison, xsGetUnitPosition(id), -1, false, false, false, -1);
+    }
 }
 
 // Swap tracked building `index` in place for `objectId`, keeping HP; the
@@ -570,6 +576,10 @@ void hlSetBuildingLocked(int index = -1, bool locked = false) {
             id = xsArrayGetInt(gBuildingIds, index);
         } else {
             hlCancelQueue(id);
+            int registered = xsArrayGetInt(gBuildingType, index);
+            if ((registered == cCastleId) || (registered == cKrepostId)) {
+                hlEjectGarrison(id);    // a dry Castle holds no garrison (playtest 2026-10-20)
+            }
         }
         xsSetUnitProperty(id, cUnitSelectable, 0);
         xsArraySetInt(gBuildingLocked, index, 1);
@@ -643,15 +653,15 @@ void hlUpdateCaption(int index = -1, bool covered = false) {
 
 // Active TCs this tick: finished, and inside their Palace radius or with supply
 // left. Before Castle Age every finished TC is active. Also groups them by
-// owner (gSourceByOwner) and counts each player's finished TCs (gTcCount).
+// owner (gSourceByOwner), which also gives each player's supplied-TC count.
 void hlRebuildSources() {
     gSourceCount = 0;
-    for (p = 0; < cMaxPlayers) {
-        xsArraySetInt(gTcCount, p, 0);
-    }
     for (i = 0; < gBuildingCount) {
         if (xsArrayGetInt(gBuildingIsTc, i) == 0) {
             continue;
+        }
+        if (xsArrayGetInt(gBuildingSupply, i) <= 0) {
+            continue;   // dry: covers nothing, and is outside its owner's control
         }
         if (xsArrayGetInt(gBuildingReady, i) == 0) {
             continue;   // an unfinished TC covers nothing
@@ -660,15 +670,8 @@ void hlRebuildSources() {
         if (xsDoesUnitExist(id) == false) {
             continue;
         }
-        int owner = xsGetUnitOwner(id);
-        if ((owner >= 0) && (owner < cMaxPlayers)) {
-            xsArraySetInt(gTcCount, owner, xsArrayGetInt(gTcCount, owner) + 1);
-        }
-        if (xsArrayGetInt(gBuildingSupply, i) <= 0) {
-            continue;   // dry: counts as a TC, covers nothing
-        }
         xsArraySetVector(gSourcePos, gSourceCount, xsGetUnitPosition(id));
-        xsArraySetInt(gSourceOwner, gSourceCount, owner);
+        xsArraySetInt(gSourceOwner, gSourceCount, xsGetUnitOwner(id));
         gSourceCount++;
     }
     int k = 0;
@@ -770,7 +773,6 @@ void hlEnsureInit() {
     gSourceByOwner = xsArrayCreateVector(cMaxTrackedBuildings, vector(-1, -1, -1), "hlSourceByOwner");
     gSourceStart = xsArrayCreateInt(cMaxPlayers, 0, "hlSourceStart");
     gSourceEnd = xsArrayCreateInt(cMaxPlayers, 0, "hlSourceEnd");
-    gTcCount = xsArrayCreateInt(cMaxPlayers, 0, "hlTcCount");
     gIsComputer = xsArrayCreateBool(cMaxPlayers, false, "hlIsComputer");
     gRulesOn = xsArrayCreateBool(cMaxPlayers, false, "hlRulesOn");
     gPalaceR = xsArrayCreateFloat(cMaxPlayers, cPalaceRadius, "hlPalaceR");
@@ -832,7 +834,7 @@ void hlRefreshPlayers() {
         xsArraySetInt(gCapPercent, p, capPercent);
         xsArraySetBool(gEnemySiegeStarve, p, false);
     }
-    // Siege & Starve: mark every player that has an enemy with the tech.
+    // Siege & Starve Out: mark every player that has an enemy with the tech.
     // Diplomacy is read only for the (rare) players who researched it.
     for (rival = 1; <= last) {
         if (hlTechDone(rival, cSiegeAndStarveTech) == false) {
@@ -1061,7 +1063,7 @@ rule hlSupplyTick
             int fortress = xsArrayGetInt(gBuildingType, i);
             if (((fortress == cCastleId) || (fortress == cKrepostId)) &&
                 xsArrayGetBool(gEnemySiegeStarve, owner)) {
-                // An enemy researched Siege & Starve while this Castle or
+                // An enemy researched Siege & Starve Out while this Castle or
                 // Krepost was locked but still firing: it goes dark now
                 // (queue cancelled, garrison out, then the swap).
                 hlSetBuildingLocked(i, true);
@@ -1071,6 +1073,13 @@ rule hlSupplyTick
                 // techs. No XS call deselects one building, so cancel (and refund)
                 // anything queued every second while locked (T24 passed).
                 hlCancelQueue(id);
+                if ((fortress == cCastleId) || (fortress == cKrepostId)) {
+                    // Playtest 2026-10-20: a dry Castle kept its garrison. It
+                    // stays empty while out of supply: anyone who garrisons is
+                    // pushed out again within a second. It still shoots (until
+                    // an enemy has Siege & Starve Out).
+                    hlEjectGarrison(id);
+                }
             }
         }
         if (hlSupplyRulesOn(owner)) {
@@ -1081,7 +1090,7 @@ rule hlSupplyTick
 }
 
 // Gold a delivery to a TC at `tcPos` earns on top of the cart's own gold:
-// Provincial Governors +5; Colonial Administration +5 per map-scaled 10 tiles
+// Provincial Governors +5; Colonial Administration +5 per map-scaled 20 tiles
 // between the Palace and the TC (decision 2026-10-20). The two add up.
 float hlDeliveryProfit(int p = -1, vector tcPos = vector(0, 0, 0)) {
     float profit = 0.0;
@@ -1284,19 +1293,18 @@ rule hlCartLogistics
     }
 }
 
-// Finished TCs of a player; with suppliedOnly, only those with supply left
-// (the player's active sources). Both come from the last hlRebuildSources.
-int hlCountTownCenters(int p = -1, bool suppliedOnly = false) {
-    if (suppliedOnly) {
-        return (xsArrayGetInt(gSourceEnd, p) - xsArrayGetInt(gSourceStart, p));
-    }
-    return (xsArrayGetInt(gTcCount, p));
+// A player's supplied TCs: finished, with supply left (their active sources,
+// from the last hlRebuildSources). A dry TC is outside its owner's control,
+// so neither government tech counts it (decision 2026-10-20).
+int hlSuppliedTownCenters(int p = -1) {
+    return (xsArrayGetInt(gSourceEnd, p) - xsArrayGetInt(gSourceStart, p));
 }
 
 // Palace tech incomes, paid every second (palace_techs.py). Each government
 // tech replaces the one before it, so only the newest pays: Centralized
-// Government +150 gold/min with at most 1 TC; else Decentralized Government
-// +20 gold/min per supplied TC; else Feudal Taxation +5 food/min per villager.
+// Government +150 gold/min with at most 1 supplied TC; else Decentralized
+// Government +20 gold/min per supplied TC; else Feudal Taxation +5 food/min
+// per villager.
 rule hlPalaceIncome
     active
     minInterval 1
@@ -1308,11 +1316,11 @@ rule hlPalaceIncome
             continue;
         }
         if (hlTechDone(p, cCentralizedGovernmentTech)) {
-            if (hlCountTownCenters(p, false) <= cCentralizedMaxTownCenters) {
+            if (hlSuppliedTownCenters(p) <= cCentralizedMaxTownCenters) {
                 xsSetPlayerAttribute(p, cAttributeGold, xsPlayerAttribute(p, cAttributeGold) + cCentralizedGold / 60.0);
             }
         } else if (hlTechDone(p, cDecentralizedGovernmentTech)) {
-            float tcs = hlCountTownCenters(p, true);
+            float tcs = hlSuppliedTownCenters(p);
             if (tcs > 0.0) {
                 xsSetPlayerAttribute(p, cAttributeGold, xsPlayerAttribute(p, cAttributeGold) + tcs * cDecentralizedGoldPerTc / 60.0);
             }

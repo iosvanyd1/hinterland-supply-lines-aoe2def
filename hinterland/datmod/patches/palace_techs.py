@@ -13,11 +13,11 @@ it is researched so XS can count repeats.
 | Paved Roads | Castle | Palace and TC supply radius +4 tiles |
 | Decentralized Government | Castle | replaces Feudal Taxation: +20 gold per minute per supplied TC |
 | Supply Depots | Castle | max supply +25 points (50% -> 75% of the base caps) |
-| Colonial Administration | Imperial | +5 gold per 10 tiles (map-scaled) between the Palace and the TC a cart delivers to |
-| Centralized Government | Imperial | replaces Decentralized Government: +150 gold per minute with at most 1 TC |
+| Colonial Administration | Imperial | +5 gold per 20 tiles (map-scaled) between the Palace and the TC a cart delivers to |
+| Centralized Government | Imperial | replaces Decentralized Government: +150 gold per minute with at most 1 supplied TC |
 | Military Warehouses | Imperial | after Supply Depots: max supply +25 points more (100%) |
 | Star Fortress | Imperial | a Castle or Krepost whose TC is lost keeps 50% of its max supply |
-| Siege & Starve | Imperial | enemy Castles and Kreposts out of supply stop firing |
+| Siege & Starve Out | Imperial | enemy Castles and Kreposts out of supply stop firing |
 | Bribe Officials | Imperial | a loaded cart stopped at an out-of-supply enemy building converts it |
 | Sabotage & Subterfuge | Imperial | repeatable: kills a random enemy cart, else drains a random enemy TC; dearer after every use by anyone |
 
@@ -97,7 +97,7 @@ TECHS = (
                "cSupplyDepotsTech", 10, 70, ((RES_WOOD, 500), (RES_GOLD, 350)), 42),     # Hand Cart icon
     PalaceTech("cStarFortressTech", "Star Fortress", 5994, vanilla.IMPERIAL_AGE, None,
                11, 60, ((RES_STONE, 400), (RES_GOLD, 300)), 103),        # Hoardings icon
-    PalaceTech("cSiegeAndStarveTech", "Siege & Starve", 5995, vanilla.IMPERIAL_AGE, None,
+    PalaceTech("cSiegeAndStarveTech", "Siege & Starve Out", 5995, vanilla.IMPERIAL_AGE, None,
                12, 70, ((RES_FOOD, 600), (RES_GOLD, 400)), 5),           # Sappers icon
     PalaceTech("cBribeOfficialsTech", "Bribe Officials", 5996, vanilla.IMPERIAL_AGE, None,
                13, 60, ((RES_FOOD, 300), (RES_GOLD, 600)), 109),         # Theocracy icon
