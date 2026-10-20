@@ -21,7 +21,7 @@ Record every in-game test here, newest first. Test IDs are from [research/TECHNI
 - [ ] HinterlandArabia is listed under Custom maps
 - [ ] No XS error dialog at game start
 - [ ] A Barracks built far from the TC shows a "Supply Ns" caption counting down
-- [ ] Supply Cart is trainable at the TC after reaching Castle Age
+- [ ] Supply Cart is trainable at the Palace after reaching Castle Age
 
 ## Log
 
