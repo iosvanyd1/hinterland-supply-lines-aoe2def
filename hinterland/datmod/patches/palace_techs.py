@@ -1,8 +1,10 @@
-"""Palace technologies (decision 2026-10-20).
+"""Palace technologies (decisions 2026-10-20).
 
-Six techs researched at the Palace. The data only defines them (cost, time,
-button, prerequisites, strings); each has an empty effect and XS applies what
-it does once `xsGetTechState` reads it as researched:
+Twelve techs researched at the Palace. The data only defines them (cost, time,
+button, prerequisites, strings); XS applies what they do once
+`xsGetTechState` reads them as researched. Their effects are empty, except
+Sabotage & Subterfuge's, which adds 1 to an unused player resource each time
+it is researched so XS can count repeats.
 
 | Tech | Age | What XS does |
 |---|---|---|
@@ -10,21 +12,28 @@ it does once `xsGetTechState` reads it as researched:
 | Provincial Governors | Castle | +5 gold per cart delivery to a TC |
 | Paved Roads | Castle | Palace and TC supply radius +4 tiles |
 | Decentralized Government | Castle | replaces Feudal Taxation: +20 gold per minute per supplied TC |
+| Supply Depots | Castle | max supply +25 points (50% -> 75% of the base caps) |
 | Colonial Administration | Imperial | +5 gold per 10 tiles (map-scaled) between the Palace and the TC a cart delivers to |
 | Centralized Government | Imperial | replaces Decentralized Government: +150 gold per minute with at most 1 TC |
+| Military Warehouses | Imperial | after Supply Depots: max supply +25 points more (100%) |
+| Star Fortress | Imperial | a Castle or Krepost whose TC is lost keeps 50% of its max supply |
+| Siege & Starve | Imperial | enemy Castles and Kreposts out of supply stop firing |
+| Bribe Officials | Imperial | a loaded cart stopped at an out-of-supply enemy building converts it |
+| Sabotage & Subterfuge | Imperial | repeatable: kills a random enemy cart, else drains a random enemy TC; dearer after every use by anyone |
 
-"Replaces" is an upgrade line on one button, like Wheelbarrow -> Hand Cart:
-each government tech needs the previous one, and XS pays only the newest.
+"Replaces" / "after" is an upgrade line on one button, like Wheelbarrow ->
+Hand Cart: the later tech needs the earlier one.
 
 Costs and times are first-pass tuning. Strings follow the vanilla tech pattern
 (Wheelbarrow: name 7211, "Research" 8211, help 107211 shown from 28211, tech
-tree 157211); bases 5973-5978 are free in every vanilla string file and the dat.
+tree 157211); every base used here is free in every vanilla string file and the
+dat (checked 2026-10-20).
 """
 import logging
 from dataclasses import dataclass
 
 from genieutils.datfile import DatFile
-from genieutils.effect import Effect
+from genieutils.effect import Effect, EffectCommand
 
 from hinterland import ids as vanilla
 from hinterland.datmod.util import clone
@@ -36,7 +45,14 @@ TECH_TREE_OFFSET = 150000       # language_dll_tech_tree = name + 150000
 
 RES_FOOD = 0
 RES_WOOD = 1
+RES_STONE = 2
 RES_GOLD = 3
+
+# Sabotage & Subterfuge's use counter: player resource 10 ("Trade Production",
+# unused in DE: no effect, civ start value, task or cost touches it in the
+# vanilla dat). Keep equal to cSabotageCounterRes in constants.xs (tested).
+SABOTAGE_COUNTER_RESOURCE = 10
+EFFECT_RESOURCE_MODIFIER = 1    # effect command: a = resource, b = 1 add, d = amount
 
 
 @dataclass(frozen=True)
@@ -50,6 +66,7 @@ class PalaceTech:
     time: int
     costs: tuple[tuple[int, int], ...]
     icon: int                   # a vanilla tech icon
+    counter_resource: int | None = None   # the effect adds 1 to it (repeatable techs)
 
     @property
     def string_creation(self) -> int:
@@ -60,7 +77,7 @@ class PalaceTech:
         return self.string_name + 21000
 
 
-# Palace buttons: 1 is the Supply Cart; the techs take the second row.
+# Palace buttons: 1 is the Supply Cart; techs take the second and third rows.
 TECHS = (
     PalaceTech("cFeudalTaxationTech", "Feudal Taxation", 5973, vanilla.FEUDAL_AGE, None,
                6, 60, ((RES_FOOD, 350), (RES_GOLD, 200)), 7),            # Coinage icon; dearer (rebalance 2026-10-20)
@@ -74,6 +91,20 @@ TECHS = (
                9, 75, ((RES_FOOD, 500), (RES_GOLD, 400)), 58),           # Guilds icon
     PalaceTech("cCentralizedGovernmentTech", "Centralized Government", 5978, vanilla.IMPERIAL_AGE,
                "cDecentralizedGovernmentTech", 6, 90, ((RES_FOOD, 600), (RES_GOLD, 500)), 14),  # Architecture icon
+    PalaceTech("cSupplyDepotsTech", "Supply Depots", 5979, vanilla.CASTLE_AGE, None,
+               10, 50, ((RES_WOOD, 300), (RES_GOLD, 200)), 79),          # Wheelbarrow icon
+    PalaceTech("cMilitaryWarehousesTech", "Military Warehouses", 5993, vanilla.IMPERIAL_AGE,
+               "cSupplyDepotsTech", 10, 70, ((RES_WOOD, 500), (RES_GOLD, 350)), 42),     # Hand Cart icon
+    PalaceTech("cStarFortressTech", "Star Fortress", 5994, vanilla.IMPERIAL_AGE, None,
+               11, 60, ((RES_STONE, 400), (RES_GOLD, 300)), 103),        # Hoardings icon
+    PalaceTech("cSiegeAndStarveTech", "Siege & Starve", 5995, vanilla.IMPERIAL_AGE, None,
+               12, 70, ((RES_FOOD, 600), (RES_GOLD, 400)), 5),           # Sappers icon
+    PalaceTech("cBribeOfficialsTech", "Bribe Officials", 5996, vanilla.IMPERIAL_AGE, None,
+               13, 60, ((RES_FOOD, 300), (RES_GOLD, 600)), 109),         # Theocracy icon
+    # Base cost; XS raises it for every player after each use (hlSabotage).
+    PalaceTech("cSabotageTech", "Sabotage & Subterfuge", 5959, vanilla.IMPERIAL_AGE, None,
+               14, 60, ((RES_FOOD, 500), (RES_GOLD, 1000)), 108,         # Heresy icon
+               counter_resource=SABOTAGE_COUNTER_RESOURCE),
 )
 
 
@@ -90,6 +121,8 @@ def _configure(tech, spec: PalaceTech, palace_id: int, effect_id: int, required:
     tech.language_dll_description = spec.string_creation
     tech.language_dll_help = spec.string_help + HELP_ID_OFFSET
     tech.language_dll_tech_tree = spec.string_name + TECH_TREE_OFFSET
+    if spec.counter_resource is not None:
+        tech.repeatable = 1     # meaning unverified; XS also enables stacking at runtime
     costs = list(spec.costs) + [(-1, 0)] * (3 - len(spec.costs))
     for slot, (res, amount) in zip(tech.resource_costs, costs):
         slot.type, slot.amount, slot.flag = res, amount, 1 if res >= 0 else 0
@@ -107,7 +140,11 @@ def apply(data: DatFile, new_ids: dict[str, int]) -> None:
     for spec in TECHS:
         tech_id = len(data.techs)
         effect_id = len(data.effects)
-        data.effects.append(Effect(name=spec.name, effect_commands=[]))   # XS applies it
+        commands = []
+        if spec.counter_resource is not None:
+            commands.append(EffectCommand(type=EFFECT_RESOURCE_MODIFIER, a=spec.counter_resource,
+                                          b=1, c=-1, d=1.0))
+        data.effects.append(Effect(name=spec.name, effect_commands=commands))
         required = (spec.age,) if spec.requires is None else (spec.age, new_ids[spec.requires])
         tech = clone(template, data.version)
         _configure(tech, spec, palace_id, effect_id, required)

@@ -46,6 +46,13 @@ DEFAULTS = {
     "cDecentralizedGovernmentTech": -1,
     "cColonialAdministrationTech": -1,
     "cCentralizedGovernmentTech": -1,
+    "cDarkCastleId": -1,
+    "cSupplyDepotsTech": -1,
+    "cMilitaryWarehousesTech": -1,
+    "cStarFortressTech": -1,
+    "cSiegeAndStarveTech": -1,
+    "cBribeOfficialsTech": -1,
+    "cSabotageTech": -1,
 }
 
 HEADER = """\

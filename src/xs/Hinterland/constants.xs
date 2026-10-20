@@ -93,7 +93,7 @@ extern const int cResMilitaryPop = 40;
 
 // ---- Supply window (design section 4) ----
 extern const int cSupplyRefuelSeconds = 90;     // added per cart delivery
-extern const int cSupplyCapSeconds = 180;       // max banked window
+extern const int cSupplyCapSeconds = 180;       // full max banked window; players start at cSupplyCapBasePercent of it
 // Map size scaling (decision 2026-10-15): refuel and cap scale with map width
 // against a Medium map (168 tiles), clamped; new buildings' 20 s does not scale.
 // Tiny 120 -> 71%, Normal 200 -> 119%, Giant 240 -> 142%.
@@ -138,6 +138,25 @@ extern const float cColonialGoldPerStep = 5.0;
 extern const int cColonialStepTiles = 10;
 extern const float cColonialMaxSteps = 10.0;
 extern const float cPavedRoadsRadiusBonus = 4.0;              // tiles, Palace and TCs
+
+// Max supply (decision 2026-10-20): every cap is halved by default; Supply
+// Depots and Military Warehouses each add 25 points back (75%, then 100%).
+extern const int cSupplyCapBasePercent = 50;
+extern const int cSupplyDepotsPercent = 25;
+extern const int cMilitaryWarehousesPercent = 25;
+// Star Fortress: a Castle or Krepost whose TC is lost keeps this % of its max.
+extern const int cStarFortressPercent = 50;
+// Sabotage & Subterfuge: its tech effect adds 1 to this unused player resource
+// per research (= SABOTAGE_COUNTER_RESOURCE in palace_techs.py, tested). The
+// price starts at the dat cost and rises by the step after every use by anyone.
+extern const int cSabotageCounterRes = 10;
+extern const int cSabotageBaseFood = 500;
+extern const int cSabotageBaseGold = 1000;
+extern const int cSabotageStepFood = 250;
+extern const int cSabotageStepGold = 500;
+extern const int cSabotageMaxUses = 50;           // per player (stacking research cap)
+// Diplomacy stance "enemy" from xsGetDiplomacy (UGC constants, Diplomacy: 3).
+extern const int cDiplomacyEnemyId = 3;
 
 // ---- Attrition (decision 2026-10-20) ----
 // From Castle Age, non-cavalry military units outside every supply radius and

@@ -62,6 +62,20 @@ int gSourceEnd = -1;
 // Finished TCs per player this tick (any supply), for Centralized Government.
 int gTcCount = -1;
 
+// Per tracked building: its current max supply (hlSupplyCapFor), refreshed
+// every hlSupplyTick.
+int gBuildingCap = -1;
+// Per player: max supply in percent of the base caps (50 + Supply Depots +
+// Military Warehouses), and whether an enemy has Siege & Starve.
+int gCapPercent = -1;
+int gEnemySiegeStarve = -1;
+// Sabotage & Subterfuge: uses seen per player (its counter resource), uses by
+// everyone (the price), and units set to 0 HP to remove if they do not die.
+int gSabotageSeen = -1;
+int gSabotageUses = 0;
+int gPendingKills = -1;
+int gPendingKillCount = 0;
+
 // Per-player values refreshed once at the start of every rule (hlBeginTick),
 // instead of engine calls per building or unit.
 int gIsComputer = -1;       // bool
@@ -124,6 +138,12 @@ bool hlSupplyRulesOn(int playerId = -1) {
 // TODO(test T35): xsGetPlayerType returns 3 for a skirmish AI.
 bool hlIsComputer(int playerId = -1) {
     return (xsArrayGetBool(gIsComputer, playerId));
+}
+
+// `p` is at war with `q` (xsGetDiplomacy: p's stance towards q; UGC constants,
+// cDiplomacyEnemy = 3). TODO(test T41): stances in a team game.
+bool hlIsEnemy(int p = -1, int q = -1) {
+    return (xsGetDiplomacy(p, q) == cDiplomacyEnemyId);
 }
 
 // A researched tech; false while the data mod is not built (ID -1).
@@ -206,12 +226,14 @@ int hlMapScaled(int seconds = 0) {
     return (seconds * gMapScalePercent / 100);
 }
 
-// Max banked supply of tracked building `index`, scaled by map size: Castles and Kreposts hold 2x
-// the normal window, Donjons and TCs 1.5x (decisions 2026-10-15). Goes by the
-// registered type, which a dark twin keeps.
-int hlSupplyCap(int index = -1) {
+// Max banked supply of tracked building `index` owned by `owner`, scaled by map
+// size: Castles and Kreposts hold 2x the normal window, Donjons and TCs 1.5x
+// (decisions 2026-10-15). Goes by the registered type, which a dark twin keeps.
+// Decision 2026-10-20: every cap starts at 50% and Supply Depots / Military
+// Warehouses add 25 points each (gCapPercent, hlRefreshPlayers).
+int hlSupplyCapFor(int index = -1, int owner = -1) {
     int objectId = xsArrayGetInt(gBuildingType, index);
-    int cap = hlMapScaled(cSupplyCapSeconds);
+    int cap = hlMapScaled(cSupplyCapSeconds) * xsArrayGetInt(gCapPercent, owner) / 100;
     if ((objectId == cCastleId) || (objectId == cKrepostId)) {
         return (cap * cFortressSupplyCapPercent / 100);
     }
@@ -224,6 +246,12 @@ int hlSupplyCap(int index = -1) {
         return (cap * cTownCenterSupplyCapPercent / 100);
     }
     return (cap);
+}
+
+// The cap hlSupplyTick last computed for building `index` (gBuildingCap), so
+// scans read an array instead of asking the engine for each building's owner.
+int hlSupplyCap(int index = -1) {
+    return (xsArrayGetInt(gBuildingCap, index));
 }
 
 int hlFindBuilding(int unitId = -1) {
@@ -428,6 +456,7 @@ int hlDarkType(int liveId = -1) {
     if (liveId == cDefensiveTownCenterId) { return (cDarkDefensiveTownCenterId); }
     if (liveId == cMilitaryTownCenterId) { return (cDarkMilitaryTownCenterId); }
     if (liveId == cKrepostId) { return (cDarkKrepostId); }
+    if (liveId == cCastleId) { return (cDarkCastleId); }
     if (liveId == cHarborId) { return (cDarkHarborId); }
     if (liveId == cFortifiedChurchId) { return (cDarkFortifiedChurchId); }
     if (liveId == cFortifiedOutpostId) { return (cDarkFortifiedOutpostId); }
@@ -455,9 +484,17 @@ int hlDarkType(int liveId = -1) {
 // Church and TC -> Economic/Defensive/Military TC change it in place.
 // TODO(test T25): does xsGetUnitObjectId return the upgraded type? If not, the
 // registered type plus hlUpgradedType still covers towers (T23) and age TCs.
+// Castles and Kreposts keep firing out of supply until an enemy of their owner
+// has Siege & Starve (decision 2026-10-20; Kreposts went dark always before).
 int hlDarkableType(int index = -1) {
     int id = xsArrayGetInt(gBuildingIds, index);
-    int objectId = hlUpgradedType(xsGetUnitOwner(id), xsArrayGetInt(gBuildingType, index));
+    int owner = xsGetUnitOwner(id);
+    int registered = xsArrayGetInt(gBuildingType, index);
+    if (((registered == cCastleId) || (registered == cKrepostId)) &&
+        (xsArrayGetBool(gEnemySiegeStarve, owner) == false)) {
+        return (-1);
+    }
+    int objectId = hlUpgradedType(owner, registered);
     if (hlDarkType(objectId) >= 0) {
         return (objectId);
     }
@@ -753,12 +790,26 @@ void hlEnsureInit() {
     xsArraySetInt(gAttritionClasses, 7, cPackedSiegeClassId);
     xsArraySetInt(gAttritionClasses, 8, cUnpackedSiegeClassId);
     xsArraySetInt(gAttritionClasses, 9, cScorpionClassId);
+    gBuildingCap = xsArrayCreateInt(cMaxTrackedBuildings, 0, "hlBuildingCap");
+    gCapPercent = xsArrayCreateInt(cMaxPlayers, cSupplyCapBasePercent, "hlCapPercent");
+    gEnemySiegeStarve = xsArrayCreateBool(cMaxPlayers, false, "hlEnemySiegeStarve");
+    gSabotageSeen = xsArrayCreateFloat(cMaxPlayers, 0.0, "hlSabotageSeen");
+    gPendingKills = xsArrayCreateInt(cMaxTrackedCarts, -1, "hlPendingKills");
+    // Sabotage & Subterfuge can be researched again and again (tech stacking;
+    // TODO(test T42): cModifyTech + cAttrSetStacking makes it re-researchable).
+    if (cSabotageTech >= 0) {
+        for (p = 1; <= hlLastPlayer()) {
+            xsEffectAmount(cModifyTech, cSabotageTech, cAttrSetStacking, 1, p);
+            xsEffectAmount(cModifyTech, cSabotageTech, cAttrSetStackingResearchCap, cSabotageMaxUses, p);
+        }
+    }
 }
 
 // Per-player values every rule needs, read once per rule instead of once per
 // building or unit (synced game state only).
 void hlRefreshPlayers() {
-    for (p = 1; <= hlLastPlayer()) {
+    int last = hlLastPlayer();
+    for (p = 1; <= last) {
         xsArraySetBool(gIsComputer, p, xsGetPlayerType(p) == cPlayerTypeComputerId);
         xsArraySetBool(gRulesOn, p, xsPlayerAttribute(p, cAttributeCurrentAge) >= cAgeCastle);
         float bonus = 0.0;
@@ -770,6 +821,27 @@ void hlRefreshPlayers() {
         int palace = xsArrayGetInt(gPalaceIds, p);
         if (palace >= 0) {
             xsArraySetVector(gPalacePos, p, xsGetUnitPosition(palace));
+        }
+        int capPercent = cSupplyCapBasePercent;
+        if (hlTechDone(p, cSupplyDepotsTech)) {
+            capPercent = capPercent + cSupplyDepotsPercent;
+        }
+        if (hlTechDone(p, cMilitaryWarehousesTech)) {
+            capPercent = capPercent + cMilitaryWarehousesPercent;
+        }
+        xsArraySetInt(gCapPercent, p, capPercent);
+        xsArraySetBool(gEnemySiegeStarve, p, false);
+    }
+    // Siege & Starve: mark every player that has an enemy with the tech.
+    // Diplomacy is read only for the (rare) players who researched it.
+    for (rival = 1; <= last) {
+        if (hlTechDone(rival, cSiegeAndStarveTech) == false) {
+            continue;
+        }
+        for (target = 1; <= last) {
+            if ((target != rival) && hlIsEnemy(rival, target)) {
+                xsArraySetBool(gEnemySiegeStarve, target, true);
+            }
         }
     }
 }
@@ -879,6 +951,7 @@ rule hlRegisterBuildings
                     (objectId == cDefensiveTownCenterId) || (objectId == cMilitaryTownCenterId)) {
                     xsArraySetInt(gBuildingIsTc, gBuildingCount, 1);
                 }
+                xsArraySetInt(gBuildingCap, gBuildingCount, hlSupplyCapFor(gBuildingCount, p));
                 gBuildingCount++;
             }
         }
@@ -913,10 +986,12 @@ rule hlSupplyTick
             xsArraySetInt(gBuildingTries, i, xsArrayGetInt(gBuildingTries, last));
             xsArraySetInt(gBuildingLive, i, xsArrayGetInt(gBuildingLive, last));
             xsArraySetInt(gBuildingShown, i, xsArrayGetInt(gBuildingShown, last));
+            xsArraySetInt(gBuildingCap, i, xsArrayGetInt(gBuildingCap, last));
             gBuildingCount--;
             continue;
         }
         int owner = xsGetUnitOwner(id);
+        xsArraySetInt(gBuildingCap, i, hlSupplyCapFor(i, owner));
         if (hlIsComputer(owner)) {
             // Converted to (or taken over by) the AI: back to normal, no caption.
             // Full supply and a clean state, so a human who converts it back
@@ -948,9 +1023,20 @@ rule hlSupplyTick
         if (covered) {
             s = hlSupplyCap(i);
         } else if (xsArrayGetInt(gBuildingCover, i) == cCoverTc) {
-            s = 0;      // its TC was lost or ran dry: the outpost goes dark at once
+            // Its TC was lost or ran dry: the outpost goes dark at once. With
+            // Star Fortress a Castle or Krepost keeps half its max supply
+            // instead (decision 2026-10-20; also when the TC only ran dry).
+            s = 0;
+            int registered = xsArrayGetInt(gBuildingType, i);
+            if (((registered == cCastleId) || (registered == cKrepostId)) &&
+                hlTechDone(owner, cStarFortressTech)) {
+                s = hlSupplyCap(i) * cStarFortressPercent / 100;
+            }
         } else if (s > 0) {
             s--;
+        }
+        if (s > hlSupplyCap(i)) {
+            s = hlSupplyCap(i);
         }
         xsArraySetInt(gBuildingCover, i, cover);
         xsArraySetInt(gBuildingSupply, i, s);
@@ -972,11 +1058,20 @@ rule hlSupplyTick
                 xsSetUnitProperty(xsArrayGetInt(gBuildingIds, i), cUnitSelectable, 0);
             }
         } else if (locked) {
-            // Unselectable does not drop a building the player already has
-            // selected (playtest 2026-10-15): its panel still queues units and
-            // techs. No XS call deselects one building, so cancel (and refund)
-            // anything queued every second while locked (T24 passed).
-            hlCancelQueue(id);
+            int fortress = xsArrayGetInt(gBuildingType, i);
+            if (((fortress == cCastleId) || (fortress == cKrepostId)) &&
+                xsArrayGetBool(gEnemySiegeStarve, owner)) {
+                // An enemy researched Siege & Starve while this Castle or
+                // Krepost was locked but still firing: it goes dark now
+                // (queue cancelled, garrison out, then the swap).
+                hlSetBuildingLocked(i, true);
+            } else {
+                // Unselectable does not drop a building the player already has
+                // selected (playtest 2026-10-15): its panel still queues units and
+                // techs. No XS call deselects one building, so cancel (and refund)
+                // anything queued every second while locked (T24 passed).
+                hlCancelQueue(id);
+            }
         }
         if (hlSupplyRulesOn(owner)) {
             hlUpdateCaption(i, covered);
@@ -1002,6 +1097,57 @@ float hlDeliveryProfit(int p = -1, vector tcPos = vector(0, 0, 0)) {
         profit = profit + steps * cColonialGoldPerStep;
     }
     return (profit);
+}
+
+// Bribe Officials (decision 2026-10-20): a loaded cart of player p stopped
+// within delivery range of an out-of-supply (locked) building of an enemy
+// converts it to p, as a monk would, and hands over its load: the building
+// gets one delivery's supply and p's cart goes home empty. Called only when
+// no own building takes the load. TODO(test T43): xsSetUnitOwner on a building
+// (and on a dark twin, which then swaps back as p's live type).
+void hlBribe(int p = -1, int ci = -1, int cart = -1, vector cartPos = vector(0, 0, 0)) {
+    int target = -1;
+    float targetDist = 9999.0;
+    for (b = 0; < gBuildingCount) {
+        if ((xsArrayGetInt(gBuildingLocked, b) == 0) || (xsArrayGetInt(gBuildingSupply, b) > 0)) {
+            continue;
+        }
+        int building = xsArrayGetInt(gBuildingIds, b);
+        int owner = xsGetUnitOwner(building);
+        if ((owner == p) || hlIsComputer(owner) || (hlIsEnemy(p, owner) == false)) {
+            continue;
+        }
+        float toBuilding = dist(cartPos, xsGetUnitPosition(building));
+        if ((toBuilding > cCartDeliveryRange) || (toBuilding >= targetDist)) {
+            continue;
+        }
+        target = b;
+        targetDist = toBuilding;
+    }
+    if (target < 0) {
+        return;
+    }
+    int id = xsArrayGetInt(gBuildingIds, target);
+    int victim = xsGetUnitOwner(id);
+    xsSetUnitOwner(id, p, true);
+    // Still locked: next hlSupplyTick sees supply > 0 and unlocks it for p.
+    int cap = hlSupplyCapFor(target, p);
+    int s = hlMapScaled(cSupplyRefuelSeconds);
+    if (s > cap) {
+        s = cap;
+    }
+    xsArraySetInt(gBuildingCap, target, cap);
+    xsArraySetInt(gBuildingSupply, target, s);
+    xsArraySetInt(gBuildingCover, target, cCoverNone);
+    xsArraySetInt(gBuildingTries, target, 0);
+    xsArraySetInt(gBuildingShown, target, -1);
+    xsChatData("Bribe Officials: player " + p + " bought a building of player " + victim, p);
+    xsArraySetInt(gCartRoute, ci, -1);
+    int empty = hlSwapCart(ci, cart, p, false);
+    int palace = xsArrayGetInt(gPalaceIds, p);
+    if (palace >= 0) {
+        hlMoveCart(empty, palace);
+    }
 }
 
 // Load at the Palace, deliver to the nearest non-full recipient where the cart
@@ -1084,6 +1230,9 @@ void hlCartTick(int p = -1, int cart = -1, bool isLoadedType = false) {
         targetDist = toBuilding;
     }
     if (target < 0) {
+        if (hlTechDone(p, cBribeOfficialsTech)) {
+            hlBribe(p, ci, cart, cartPos);
+        }
         return;
     }
     int s = xsArrayGetInt(gBuildingSupply, target) + hlMapScaled(cSupplyRefuelSeconds);
@@ -1244,6 +1393,135 @@ rule hlAttrition
                 }
                 xsSetUnitHitpoints(id, hp);
             }
+        }
+    }
+}
+
+// Kill a unit by setting its HP to 0; hlSabotage removes it next second if the
+// engine did not (TODO(test T37): does HP 0 kill?).
+void hlKillUnit(int id = -1) {
+    xsSetUnitHitpoints(id, 0.0);
+    if (gPendingKillCount < xsArrayGetSize(gPendingKills)) {
+        xsArraySetInt(gPendingKills, gPendingKillCount, id);
+        gPendingKillCount++;
+    }
+}
+
+// Tracked building b is an enemy TC that Sabotage can drain: finished, with
+// supply left, not inside its owner's Palace radius last tick.
+bool hlSabotageTc(int p = -1, int b = -1) {
+    if ((xsArrayGetInt(gBuildingIsTc, b) == 0) || (xsArrayGetInt(gBuildingReady, b) == 0)) {
+        return (false);
+    }
+    if ((xsArrayGetInt(gBuildingSupply, b) <= 0) || (xsArrayGetInt(gBuildingCover, b) == cCoverPalace)) {
+        return (false);
+    }
+    int owner = xsGetUnitOwner(xsArrayGetInt(gBuildingIds, b));
+    return ((owner != p) && (hlIsComputer(owner) == false) && hlIsEnemy(p, owner));
+}
+
+// One use of Sabotage & Subterfuge by player p: kill a random Supply Cart
+// (empty or loaded) of p's enemies; if they have none, drain a random enemy
+// TC that is not inside its own Palace radius (one there refills at once).
+void hlSabotageOnce(int p = -1) {
+    int last = hlLastPlayer();
+    int total = 0;
+    for (q = 1; <= last) {
+        if ((q == p) || hlIsComputer(q) || (hlIsEnemy(p, q) == false)) {
+            continue;
+        }
+        total = total + xsArrayGetSize(xsGetPlayerUnitIds(q, cSupplyCartId, gScratch));
+        total = total + xsArrayGetSize(xsGetPlayerUnitIds(q, cLoadedSupplyCartId, gScratch));
+    }
+    if (total > 0) {
+        int pick = xsGetRandomNumberMax(total);
+        for (q = 1; <= last) {
+            if ((q == p) || hlIsComputer(q) || (hlIsEnemy(p, q) == false)) {
+                continue;
+            }
+            for (kind = 0; < 2) {
+                int objectId = cSupplyCartId;
+                if (kind == 1) {
+                    objectId = cLoadedSupplyCartId;
+                }
+                int carts = xsGetPlayerUnitIds(q, objectId, gScratch);
+                int n = xsArrayGetSize(carts);
+                if (pick < n) {
+                    hlKillUnit(xsArrayGetInt(carts, pick));
+                    xsChatData("Sabotage: player " + p + " destroyed a Supply Cart of player " + q, p);
+                    return;
+                }
+                pick = pick - n;
+            }
+        }
+        return;
+    }
+    int tcs = 0;
+    for (b = 0; < gBuildingCount) {
+        if (hlSabotageTc(p, b)) {
+            tcs++;
+        }
+    }
+    if (tcs == 0) {
+        xsChatData("Sabotage: player " + p + " found no enemy cart or Town Center to sabotage", p);
+        return;
+    }
+    int which = xsGetRandomNumberMax(tcs);
+    for (b = 0; < gBuildingCount) {
+        if (hlSabotageTc(p, b) == false) {
+            continue;
+        }
+        if (which == 0) {
+            xsArraySetInt(gBuildingSupply, b, 0);
+            xsChatData("Sabotage: player " + p + " drained a Town Center of player " +
+                       xsGetUnitOwner(xsArrayGetInt(gBuildingIds, b)), p);
+            return;
+        }
+        which--;
+    }
+}
+
+// Sabotage & Subterfuge (decision 2026-10-20). Its tech effect adds 1 to
+// player resource cSabotageCounterRes per research; each new count is one use.
+// After every use, by anyone, the price rises for every player.
+// TODO(test T42): repeat research (stacking) and the price change.
+rule hlSabotage
+    active
+    minInterval 1
+    maxInterval 1
+{
+    hlBeginTick();
+    for (k = 0; < gPendingKillCount) {
+        int victim = xsArrayGetInt(gPendingKills, k);
+        if (xsDoesUnitExist(victim)) {
+            xsRemoveUnit(victim);
+        }
+    }
+    gPendingKillCount = 0;
+    if ((cSabotageTech < 0) || (cSupplyCartId < 0)) {
+        return;
+    }
+    bool priced = false;
+    for (p = 1; <= hlLastPlayer()) {
+        if (hlIsComputer(p)) {
+            continue;
+        }
+        float used = xsPlayerAttribute(p, cSabotageCounterRes);
+        float seen = xsArrayGetFloat(gSabotageSeen, p);
+        while (seen < used) {
+            hlSabotageOnce(p);
+            seen = seen + 1.0;
+            gSabotageUses++;
+            priced = true;
+        }
+        xsArraySetFloat(gSabotageSeen, p, seen);
+    }
+    if (priced) {
+        for (p = 1; <= hlLastPlayer()) {
+            xsEffectAmount(cModifyTech, cSabotageTech, cAttrSetFoodCost,
+                           cSabotageBaseFood + gSabotageUses * cSabotageStepFood, p);
+            xsEffectAmount(cModifyTech, cSabotageTech, cAttrSetGoldCost,
+                           cSabotageBaseGold + gSabotageUses * cSabotageStepGold, p);
         }
     }
 }

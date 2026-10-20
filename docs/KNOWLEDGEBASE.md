@@ -124,6 +124,8 @@ IDs below are for that build. Re-check them after a game patch.
 - Current age: `xsPlayerAttribute(p, cAttributeCurrentAge)`; Castle Age = 2. [game]
 - `xsGetPlayerType(p)`: -1 none, 0 editor phantom, 1 human, 2 Gaia, 3 computer (UGC constants, Player Type). Used to exempt AI players (T35). [docs]
 - Functions taking `objectOrClassId` take a unit class as 900 + dat class (`cArcherClass` 900, `cVillagerClass` 904, `cInfantryClass` 906, `cCavalryClass` 912; UGC constants, Object Class). Used by Feudal Taxation and attrition (T36, T37). [docs]
+- `xsGetDiplomacy(source, target)` returns source's stance towards target: 0 ally, 1 neutral, 3 enemy (UGC constants, Diplomacy). `xsSetUnitOwner(unit, player, flash)` is "the same as the editor effect" (Change Ownership). Both used since 2026-10-20 (T41, T43). [docs]
+- Repeatable techs: `xsEffectAmount(cModifyTech, tech, cAttrSetStacking, 1, p)` plus `cAttrSetStackingResearchCap`; prices via `cModifyTech` with `cAttrSetFoodCost` (0) / `cAttrSetGoldCost` (3) (`cSetTechCost` no longer works). Tech state constants (`cTechStateReady`...) cannot be used with `cAttrSetState`. Player resource 10 ("Trade Production") is untouched by the vanilla dat; Sabotage counts its uses there (T42). [docs] [data]
 - `xsGetMapWidth()` returns the map width in tiles (Tiny 120: supply caps came out at 71%, T33). [game]
 - Gold: `xsPlayerAttribute(p, cAttributeGold)` / `xsSetPlayerAttribute(p, cAttributeGold, v)`. [game]
 - Block or allow building a type: `xsEffectAmount(cEnableObject, id, cAttributeDisable / cAttributeEnable, 0, p)`. Disabling a unit **before** the data enables it (Feudal Age) left it unbuildable; only disable after the data has enabled it. Re-enabling after a disable works (Palace rebuild, T16). [game]

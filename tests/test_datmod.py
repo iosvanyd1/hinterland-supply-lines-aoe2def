@@ -217,6 +217,7 @@ def test_dark_building_ids_match_xs():
     for name, value in (("cWatchTowerId", ids.WATCH_TOWER), ("cGuardTowerId", ids.GUARD_TOWER),
                         ("cKeepId", ids.KEEP), ("cBombardTowerId", ids.BOMBARD_TOWER),
                         ("cDonjonId", ids.DONJON), ("cKrepostId", ids.KREPOST),
+                        ("cCastleId", ids.CASTLE),
                         ("cHarborId", ids.HARBOR), ("cFortifiedChurchId", ids.FORTIFIED_CHURCH),
                         ("cFortifiedOutpostId", ids.FORTIFIED_OUTPOST),
                         ("cFortifiedOutpost2Id", ids.FORTIFIED_OUTPOST_2),
@@ -318,7 +319,11 @@ def test_palace_techs_researched_at_palace(built):
         if spec.requires is not None:
             assert new_ids[spec.requires] in required
             assert by_key[spec.requires].button == spec.button       # an upgrade line: one button
-        assert data.effects[tech.effect_id].effect_commands == []     # XS applies it
+        commands = [(c.type, c.a, c.b, c.d) for c in data.effects[tech.effect_id].effect_commands]
+        if spec.counter_resource is None:
+            assert commands == []                                     # XS applies it
+        else:
+            assert commands == [(1, spec.counter_resource, 1, 1.0)]   # +1 per research, XS counts
         assert tech.language_dll_help == spec.string_help + palace_techs.HELP_ID_OFFSET
         assert len(tech.required_techs) == 6
         assert [(c.type, c.amount) for c in tech.resource_costs if c.type >= 0] == list(spec.costs)
