@@ -86,6 +86,9 @@ int gPendingKillCount = 0;
 // Per-player values refreshed once at the start of every rule (hlBeginTick),
 // instead of engine calls per building or unit.
 int gLastPlayer = 0;        // hlLastPlayer(), read once per rule
+// Palace tech income owed but not yet paid (less than 1), per player: food and gold.
+int gIncomeFood = -1;
+int gIncomeGold = -1;
 int gIsComputer = -1;       // bool
 int gRulesOn = -1;          // bool: Castle Age or later
 int gPalaceR = -1;          // float: Palace supply radius (Paved Roads included)
@@ -228,10 +231,16 @@ void hlSetSlot(int map = -1, int unitId = -1, int slot = -1) {
     xsArraySetInt(map, unitId, slot + 1);
 }
 
+// value * percent / 100 rounded UP (decision 2026-10-20: no decimals anywhere,
+// always round up; plain integer division rounded down). Non-negative inputs.
+int hlPercentUp(int value = 0, int percent = 100) {
+    return ((value * percent + 99) / 100);
+}
+
 // A supply window scaled by map size: cart round trips grow with the distance
-// between bases (decision 2026-10-15, baseline Medium).
+// between bases (decision 2026-10-15, baseline Medium). Rounded up.
 int hlMapScaled(int seconds = 0) {
-    return (seconds * gMapScalePercent / 100);
+    return (hlPercentUp(seconds, gMapScalePercent));
 }
 
 // Max banked supply of tracked building `index` owned by `owner`, scaled by map
@@ -241,17 +250,17 @@ int hlMapScaled(int seconds = 0) {
 // Warehouses add 25 points each (gCapPercent, hlRefreshPlayers).
 int hlSupplyCapFor(int index = -1, int owner = -1) {
     int objectId = xsArrayGetInt(gBuildingType, index);
-    int cap = hlMapScaled(cSupplyCapSeconds) * xsArrayGetInt(gCapPercent, owner) / 100;
+    int cap = hlPercentUp(hlMapScaled(cSupplyCapSeconds), xsArrayGetInt(gCapPercent, owner));
     if ((objectId == cCastleId) || (objectId == cKrepostId)) {
-        return (cap * cFortressSupplyCapPercent / 100);
+        return (hlPercentUp(cap, cFortressSupplyCapPercent));
     }
     if (objectId == cDonjonId) {
-        return (cap * cDonjonSupplyCapPercent / 100);
+        return (hlPercentUp(cap, cDonjonSupplyCapPercent));
     }
     if (xsArrayGetInt(gBuildingIsTc, index) == 1) {
         // A dry TC takes its whole outpost dark at once (cCoverTc), so its
         // bank is the town's siege clock (decision 2026-10-15).
-        return (cap * cTownCenterSupplyCapPercent / 100);
+        return (hlPercentUp(cap, cTownCenterSupplyCapPercent));
     }
     return (cap);
 }
@@ -722,7 +731,7 @@ void hlEnsureInit() {
     }
     gInitDone = true;
     // xsGetMapWidth() is in tiles (T33 passed).
-    gMapScalePercent = xsGetMapWidth() * 100 / cMapScaleBaseTiles;
+    gMapScalePercent = (xsGetMapWidth() * 100 + cMapScaleBaseTiles - 1) / cMapScaleBaseTiles;   // rounded up
     if (gMapScalePercent < cMapScaleMinPercent) {
         gMapScalePercent = cMapScaleMinPercent;
     }
@@ -814,6 +823,8 @@ void hlEnsureInit() {
     xsArraySetInt(gAttritionClasses, 8, cUnpackedSiegeClassId);
     xsArraySetInt(gAttritionClasses, 9, cScorpionClassId);
     gBuildingCap = xsArrayCreateInt(cMaxTrackedBuildings, 0, "hlBuildingCap");
+    gIncomeFood = xsArrayCreateFloat(cMaxPlayers, 0.0, "hlIncomeFood");
+    gIncomeGold = xsArrayCreateFloat(cMaxPlayers, 0.0, "hlIncomeGold");
     gBuildingPos = xsArrayCreateVector(cMaxTrackedBuildings, vector(-1, -1, -1), "hlBuildingPos");
     gBuildingOwner = xsArrayCreateInt(cMaxTrackedBuildings, -1, "hlBuildingOwner");
     gCapPercent = xsArrayCreateInt(cMaxPlayers, cSupplyCapBasePercent, "hlCapPercent");
@@ -1078,7 +1089,7 @@ rule hlSupplyTick
             int registered = xsArrayGetInt(gBuildingType, i);
             if (((registered == cCastleId) || (registered == cKrepostId)) &&
                 hlTechDone(owner, cStarFortressTech)) {
-                s = hlSupplyCap(i) * cStarFortressPercent / 100;
+                s = hlPercentUp(hlSupplyCap(i), cStarFortressPercent);
             }
         } else if (s > 0) {
             s--;
@@ -1329,7 +1340,7 @@ void hlCartTick(int p = -1, int cart = -1, bool isLoadedType = false) {
     // every second. Now a TC's profit is bounded by its drain, 1 s per second.
     if ((xsArrayGetInt(gBuildingIsTc, target) == 1) && (refuel > 0)) {
         float added = s - before;
-        float profit = hlDeliveryProfit(p, xsGetUnitPosition(xsArrayGetInt(gBuildingIds, target))) * added / refuel;
+        float profit = ceil(hlDeliveryProfit(p, xsGetUnitPosition(xsArrayGetInt(gBuildingIds, target))) * added / refuel);   // whole gold, rounded up
         if (profit > 0.0) {
             xsSetPlayerAttribute(p, cAttributeGold, xsPlayerAttribute(p, cAttributeGold) + profit);
         }
@@ -1369,7 +1380,20 @@ rule hlCartLogistics
     }
 }
 
-// Palace tech incomes, paid every second (palace_techs.py). Each government
+// Accrue `perMinute` / 60 of resource `res` for player p this second (in
+// accumulator array `acc`), and pay only whole units: no fractional resources
+// (decision 2026-10-20), while the per-minute rate stays exact.
+void hlPayWhole(int p = -1, int res = -1, int acc = -1, float perMinute = 0.0) {
+    float owed = xsArrayGetFloat(acc, p) + perMinute / 60.0;
+    float whole = floor(owed);
+    if (whole >= 1.0) {
+        xsSetPlayerAttribute(p, res, xsPlayerAttribute(p, res) + whole);
+        owed = owed - whole;
+    }
+    xsArraySetFloat(acc, p, owed);
+}
+
+// Palace tech incomes, paid every second in whole units (palace_techs.py). Each government
 // tech replaces the one before it, so only the newest pays. Reworked toward
 // upkeep relief (decision 2026-10-20): Centralized Government +25 gold/min
 // flat (and Palace radius +6, hlRefreshPlayers); else Decentralized Government
@@ -1389,11 +1413,11 @@ rule hlPalaceIncome
             continue;
         }
         if (hlTechDone(p, cCentralizedGovernmentTech)) {
-            xsSetPlayerAttribute(p, cAttributeGold, xsPlayerAttribute(p, cAttributeGold) + cCentralizedGold / 60.0);
+            hlPayWhole(p, cAttributeGold, gIncomeGold, cCentralizedGold);
         } else if (hlTechDone(p, cDecentralizedGovernmentTech)) {
             float tcs = xsArrayGetInt(gOutpostTcCount, p);
             if (tcs > 0.0) {
-                xsSetPlayerAttribute(p, cAttributeGold, xsPlayerAttribute(p, cAttributeGold) + tcs * cDecentralizedGoldPerTc / 60.0);
+                hlPayWhole(p, cAttributeGold, gIncomeGold, tcs * cDecentralizedGoldPerTc);
             }
         } else if (hlTechDone(p, cFeudalTaxationTech)) {
             // TODO(test T36): xsGetPlayerUnitIds with a class ID (904 = villagers).
@@ -1402,7 +1426,7 @@ rule hlPalaceIncome
                 villagers = cFeudalTaxationMaxVillagers;
             }
             if (villagers > 0.0) {
-                xsSetPlayerAttribute(p, cResFood, xsPlayerAttribute(p, cResFood) + villagers * cFeudalTaxationFoodPerVillager / 60.0);
+                hlPayWhole(p, cResFood, gIncomeFood, villagers * cFeudalTaxationFoodPerVillager);
             }
         }
     }
@@ -1469,7 +1493,7 @@ rule hlAttrition
                     continue;
                 }
                 float maxHp = xsGetObjectAttribute(p, xsGetUnitObjectId(id), cHitpoints, 0);
-                hp = hp - maxHp * cAttritionPercent / 100.0;
+                hp = hp - ceil(maxHp * cAttritionPercent / 100.0);   // whole HP, rounded up (40 HP unit: 1 per tick)
                 if (hp < 0.0) {
                     hp = 0.0;
                 }

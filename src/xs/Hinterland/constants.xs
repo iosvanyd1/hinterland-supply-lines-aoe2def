@@ -123,9 +123,12 @@ extern const float cTownCenterRadius = 12.0;    // tiles, every TC
 
 
 // ---- Palace technologies (palace_techs.py; decision 2026-10-20) ----
-// Incomes are per minute; hlPalaceIncome pays them out every second.
+// Incomes are per minute; hlPalaceIncome pays them out in whole units as they
+// accrue (hlPayWhole), so the exact per-minute rate holds.
 // Decision 2026-10-20: every gold yield halved, so the techs ease the cost of
 // supply lines instead of becoming an economic engine of their own.
+// Decision 2026-10-20: no decimal numbers anywhere in the game; any value that
+// would be fractional is rounded UP to the next whole number (2.5 -> 3).
 extern const float cFeudalTaxationFoodPerVillager = 5.0;      // per minute
 extern const float cFeudalTaxationMaxVillagers = 30.0;        // only the first 30 count (2026-10-20): max 150 food/min
 extern const float cDecentralizedGoldPerTc = 10.0;            // per minute, per supplied TC outside the Palace radius
@@ -135,15 +138,16 @@ extern const float cDecentralizedGoldPerTc = 10.0;            // per minute, per
 // Decentralized counts only supplied TCs outside the Palace radius.
 extern const float cCentralizedGold = 25.0;                   // per minute
 extern const float cCentralizedPalaceRadiusBonus = 6.0;       // tiles
-extern const float cProvincialGovernorsGold = 2.5;            // per delivery to a TC
-// Colonial Administration: +2.5 gold per 20 tiles between the Palace and the TC,
-// the 20 tiles scaled by map size (hlMapScaled), at most 10 steps (+25).
-// Recalibrated 2026-10-20 (playtest: max gold came too close): the full +25
-// now needs 200 tiles on Medium, double the old 100. Step size: Tiny 14,
-// Medium 20, Giant 28 tiles. Deliveries only reach TCs outside the Palace
-// radius (20 tiles), so on Medium a delivery earns at least 1 step (+2.5), and a
-// TC 60 tiles out earns 3 (+7.5).
-extern const float cColonialGoldPerStep = 2.5;
+extern const float cProvincialGovernorsGold = 3.0;            // per delivery to a TC (halved 5 -> 2.5, rounded up)
+// Colonial Administration: +3 gold per 20 tiles between the Palace and the TC,
+// the 20 tiles scaled by map size (hlMapScaled), at most 10 steps (+30).
+// Recalibrated 2026-10-20 (playtest: max gold came too close): the full +30
+// now needs 200 tiles on Medium, double the old 100. Step size: Tiny 15,
+// Medium 20, Giant 29 tiles. Deliveries only reach TCs outside the Palace
+// radius (20 tiles), so on Medium a delivery earns at least 1 step (+3), and a
+// TC 60 tiles out earns 3 (+9). Only complete steps count. The total profit
+// is scaled by the supply a delivery adds and then rounded up.
+extern const float cColonialGoldPerStep = 3.0;                // halved 5 -> 2.5, rounded up
 extern const int cColonialStepTiles = 20;
 extern const float cColonialMaxSteps = 10.0;
 extern const float cPavedRoadsRadiusBonus = 4.0;              // tiles, Palace and TCs
@@ -170,7 +174,9 @@ extern const int cDiplomacyEnemyId = 3;
 // ---- Attrition (decision 2026-10-20) ----
 // From Castle Age, non-cavalry military units outside every supply radius and
 // farther than cAttritionCartRadius from their own loaded Supply Cart lose
-// cAttritionPercent of their max HP every 2 s (hlAttrition): ~200 s to die.
+// cAttritionPercent of their max HP every 2 s (hlAttrition), rounded up to whole
+// HP (no decimals, 2026-10-20): ~200 s to die at 100+ HP, faster below
+// (at least 1 HP per tick: a 40 HP archer dies in 80 s).
 extern const float cAttritionCartRadius = 20.0;               // tiles
 extern const float cAttritionPercent = 1.0;
 // Unit classes as XS class IDs (900 + dat class; UGC constants, Object Class).

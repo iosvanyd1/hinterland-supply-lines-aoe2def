@@ -43,3 +43,20 @@ def test_sabotage_counter_and_base_cost_match_xs():
 def test_supply_cap_techs_reach_full_cap():
     assert _xs_int("cSupplyCapBasePercent") + _xs_int("cSupplyDepotsPercent") \
         + _xs_int("cMilitaryWarehousesPercent") == 100
+
+
+def test_no_decimal_numbers_in_tooltips():
+    """Decision 2026-10-20: no decimal numbers anywhere in the game (round up)."""
+    from hinterland import SRC_STRINGS
+
+    strings = (SRC_STRINGS / "en" / "key-value-modded-strings-utf8.txt").read_text(encoding="utf-8")
+    for line in strings.splitlines():
+        if line.startswith("//"):
+            continue
+        assert not re.search(r"\d\.\d", line), line
+
+
+def test_palace_tech_yields_are_whole_numbers():
+    for name in ("cProvincialGovernorsGold", "cColonialGoldPerStep", "cDecentralizedGoldPerTc",
+                 "cCentralizedGold", "cFeudalTaxationFoodPerVillager"):
+        assert _xs_float(name).is_integer(), name
