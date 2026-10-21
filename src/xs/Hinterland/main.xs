@@ -847,7 +847,8 @@ void hlRefreshPlayers() {
     int last = hlLastPlayer();
     gLastPlayer = last;
     for (p = 1; <= last) {
-        xsArraySetBool(gIsComputer, p, xsGetPlayerType(p) == cPlayerTypeComputerId);
+        // cExemptComputerPlayers false: the AI counts as a human (testing switch).
+        xsArraySetBool(gIsComputer, p, cExemptComputerPlayers && (xsGetPlayerType(p) == cPlayerTypeComputerId));
         xsArraySetBool(gRulesOn, p, xsPlayerAttribute(p, cAttributeCurrentAge) >= cAgeCastle);
         float bonus = 0.0;
         if (hlTechDone(p, cPavedRoadsTech)) {

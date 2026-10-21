@@ -24,7 +24,26 @@ def dev_mod(mod: ModInfo) -> ModInfo:
     return replace(mod, name=f"{mod.name}Dev", title=f"{mod.title} (dev)")
 
 
-def assemble(mod: ModInfo, paths: GamePaths | None, with_dat: bool, text_mod: bool = True) -> Path:
+AI_SWITCH = "extern const bool cExemptComputerPlayers = true;"
+
+
+def affect_computer_players(xs_dir: Path) -> None:
+    """Flip the AI exemption switch in a build copy of the XS (testing only).
+
+    constants.xs keeps `cExemptComputerPlayers = true` (release default); this
+    sets it to false in build/, so the AI is treated like a human player.
+    """
+    constants = xs_dir / "Hinterland" / "constants.xs"
+    text = constants.read_text(encoding="utf-8")
+    if AI_SWITCH not in text:
+        raise ValueError(f"AI switch not found in {constants}: expected {AI_SWITCH!r}")
+    constants.write_text(text.replace(AI_SWITCH, AI_SWITCH.replace("true", "false")),
+                         encoding="utf-8", newline="\n")
+    logging.warning("AI players are AFFECTED by the mod in this build (--ai-affected)")
+
+
+def assemble(mod: ModInfo, paths: GamePaths | None, with_dat: bool, text_mod: bool = True,
+             ai_affected: bool = False) -> Path:
     root = mod_root(mod)
     if root.exists():
         shutil.rmtree(root)
@@ -50,6 +69,8 @@ def assemble(mod: ModInfo, paths: GamePaths | None, with_dat: bool, text_mod: bo
         # Real IDs go into the build copy only; src/ keeps the committed placeholders,
         # since IDs like len(units) shift when a game patch adds units.
         xsgen.write(new_ids, common / "xs" / xsgen.GENERATED_IDS.relative_to(SRC_XS))
+    if ai_affected:
+        affect_computer_players(common / "xs")
     vanilla_effects = paths.vanilla_effects_xs if (with_dat and paths is not None) else None
     _ship_xs(common / "xs", vanilla_effects)
     if SRC_RMS.is_dir() and any(SRC_RMS.iterdir()):

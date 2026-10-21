@@ -14,6 +14,9 @@ def main(argv: list[str] | None = None) -> int:
     b.add_argument("--no-dat", action="store_true", help="Skip the data mod (XS only)")
     b.add_argument("--dev", action="store_true",
                    help="Local test build 'HinterlandSupplyLinesDev', titled '(dev)'; no Text mod")
+    b.add_argument("--ai-affected", action="store_true",
+                   help="With --dev: computer players are affected by the mod (for testing); "
+                        "release builds always exempt them")
     sub.add_parser("lint", help="Run xs-check on the XS entry point")
     sub.add_parser("package", help="Zip the data mod and the Text mod into dist/ for upload")
     sub.add_parser("paths", help="Print the resolved game paths")
@@ -24,8 +27,11 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "build":
         paths = None if args.no_dat else config.load_game_paths()
+        if args.ai_affected and not args.dev:
+            parser.error("--ai-affected is for --dev builds only; a release must exempt the AI")
         if args.dev:
-            assemble.assemble(assemble.dev_mod(mod), paths, with_dat=not args.no_dat, text_mod=False)
+            assemble.assemble(assemble.dev_mod(mod), paths, with_dat=not args.no_dat, text_mod=False,
+                              ai_affected=args.ai_affected)
         else:
             assemble.assemble(mod, paths, with_dat=not args.no_dat)
         return 0

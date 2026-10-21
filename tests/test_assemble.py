@@ -93,3 +93,34 @@ def test_flattened_xs_has_no_includes_and_all_rules():
     assert not re.search(r'^\s*include\s+"', flat, re.MULTILINE)
     for name in ("void hlEnsureInit()", "rule hlSupplyTick", "rule hlCartLogistics", "extern const int cSupplyCartId"):
         assert name in flat
+
+
+def _built_xs(root):
+    xs_dir = root / "resources" / "_common" / "xs"
+    return "".join(p.read_text(encoding="utf-8") for p in xs_dir.rglob("*.xs"))
+
+
+def test_ai_exempt_by_default_and_switch_in_source():
+    src = (assemble.SRC_XS / "Hinterland" / "constants.xs").read_text(encoding="utf-8")
+    assert assemble.AI_SWITCH in src        # committed default: the AI is exempt
+    root = assemble.assemble(config.load_mod_info(), None, with_dat=False)
+    assert "cExemptComputerPlayers = true;" in _built_xs(root)
+
+
+def test_ai_affected_flips_switch_in_build_only():
+    mod = assemble.dev_mod(config.load_mod_info())
+    root = assemble.assemble(mod, None, with_dat=False, text_mod=False, ai_affected=True)
+    built = _built_xs(root)
+    assert "cExemptComputerPlayers = false;" in built
+    assert "cExemptComputerPlayers = true;" not in built
+    src = (assemble.SRC_XS / "Hinterland" / "constants.xs").read_text(encoding="utf-8")
+    assert assemble.AI_SWITCH in src         # source untouched
+
+
+def test_ai_affected_refused_for_release_builds():
+    import pytest
+
+    from hinterland import cli
+
+    with pytest.raises(SystemExit):
+        cli.main(["build", "--no-dat", "--ai-affected"])

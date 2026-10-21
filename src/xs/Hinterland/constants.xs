@@ -200,6 +200,12 @@ extern const int cVillagerClassId = 904;
 // The AI cannot use the Palace or carts, so no XS rule touches computer players
 // (xsGetPlayerType; UGC constants, Player Type: 3 = computer).
 extern const int cPlayerTypeComputerId = 3;
+// Switch: true = computer players are exempt from every mod rule (release
+// default). false = the AI is treated like a human (supply, attrition, Siege &
+// Starve Out, Bribe and Sabotage targets), for testing techs against it.
+// Leave it true here; `python -m hinterland build --dev --ai-affected` flips it
+// in the build copy only (assemble.py).
+extern const bool cExemptComputerPlayers = true;
 
 // ---- Ages (resource cAttributeCurrentAge; standard values, verify) ----
 extern const int cAgeCastle = 2;                // supply rules start here (design section 3)
