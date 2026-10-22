@@ -17,7 +17,7 @@ Read first: **docs/KNOWLEDGEBASE.md** (verified engine facts, field names, XS be
 ## Commands
 - Lint XS: `python -m hinterland lint` (needs xs-check in tools/bin or PATH)
 - Tests: `python -m pytest -q`
-- Dev build for local tests: `python -m hinterland build --dev`, then `scripts\deploy.ps1 -ModName HinterlandSupplyLinesDev`
+- Dev build for local tests: `python -m hinterland build --dev`, then `scripts\deploy.ps1 -ModName HinterlandSupplyLinesDev`. Add `--ai-affected` to make computer players subject to the mod (testing only; release builds always exempt them)
 - Release build: `python -m hinterland build`, then `scripts\deploy.ps1` (for My Mods > Update Mod; remove the local copies afterwards)
 - Build without the vanilla dat: `python -m hinterland build --no-dat`
 - Package zips: `python -m hinterland package`

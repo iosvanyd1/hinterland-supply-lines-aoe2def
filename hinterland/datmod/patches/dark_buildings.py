@@ -5,8 +5,9 @@ Playtest 2026-10-15: towers were not supply recipients, so a tower drop kept
 shooting anywhere. XS tracks towers like other buildings; when one runs out of
 supply it swaps it for its dark twin (hlSwapBuilding) and back once resupplied
 (T23 passed). Decision 2026-10-15: Town Centers, the Krepost, Harbor, Fortified
-Church and Fortified Outposts go dark the same way. Only Castles keep firing
-out of supply. Decision 2026-10-15: gathering needs supply too, so drop sites
+Church and Fortified Outposts go dark the same way. Castles and Kreposts keep firing
+out of supply until an enemy researches Siege & Starve Out (decision 2026-10-20).
+Decision 2026-10-15: gathering needs supply too, so drop sites
 (Dock, Mill, Lumber Camp, Mining Camp and their civ variants, Mule Cart) go
 dark: villagers cannot drop resources at a dark twin (playtest 2026-10-15,
 dark TC), since drop-site lists name the base ID.
@@ -43,6 +44,9 @@ DARK_TWINS = {
     "cDarkDefensiveTownCenterId": vanilla.DEFENSIVE_TOWN_CENTER,
     "cDarkMilitaryTownCenterId": vanilla.MILITARY_TOWN_CENTER,
     "cDarkKrepostId": vanilla.KREPOST,
+    # Castles (and, since 2026-10-20, Kreposts) go dark only once an enemy has
+    # researched Siege & Starve Out; XS decides when (hlDarkableType).
+    "cDarkCastleId": vanilla.CASTLE,
     "cDarkHarborId": vanilla.HARBOR,
     "cDarkFortifiedChurchId": vanilla.FORTIFIED_CHURCH,
     "cDarkFortifiedOutpostId": vanilla.FORTIFIED_OUTPOST,

@@ -217,6 +217,7 @@ def test_dark_building_ids_match_xs():
     for name, value in (("cWatchTowerId", ids.WATCH_TOWER), ("cGuardTowerId", ids.GUARD_TOWER),
                         ("cKeepId", ids.KEEP), ("cBombardTowerId", ids.BOMBARD_TOWER),
                         ("cDonjonId", ids.DONJON), ("cKrepostId", ids.KREPOST),
+                        ("cCastleId", ids.CASTLE),
                         ("cHarborId", ids.HARBOR), ("cFortifiedChurchId", ids.FORTIFIED_CHURCH),
                         ("cFortifiedOutpostId", ids.FORTIFIED_OUTPOST),
                         ("cFortifiedOutpost2Id", ids.FORTIFIED_OUTPOST_2),
@@ -297,3 +298,97 @@ def test_drop_site_chains_match_upgrade_effects(built):
                 else:
                     continue
                 assert ids.MILL_CHAIN[2] not in unit.bird.drop_sites   # sites listed by base ID
+
+
+def test_palace_techs_researched_at_palace(built):
+    from genieutils.datfile import DatFile
+
+    from hinterland.datmod.patches import palace_techs, supply_cart
+
+    new_ids, out = built
+    data = DatFile.parse(out)
+    palace_id = new_ids["cPalaceId"]
+    by_key = {spec.key: spec for spec in palace_techs.TECHS}
+    for spec in palace_techs.TECHS:
+        tech = data.techs[new_ids[spec.key]]
+        assert tech.name == spec.name
+        assert [(loc.location_id, loc.button_id) for loc in tech.research_locations] == [(palace_id, spec.button)]
+        assert spec.button != supply_cart.PALACE_BUTTON_ID
+        required = [t for t in tech.required_techs if t >= 0]
+        assert spec.age in required and tech.required_tech_count == len(required)
+        if spec.requires is not None:
+            assert new_ids[spec.requires] in required
+            assert by_key[spec.requires].button == spec.button       # an upgrade line: one button
+        commands = [(c.type, c.a, c.b, c.d) for c in data.effects[tech.effect_id].effect_commands]
+        if spec.counter_resource is None:
+            assert commands == []                                     # XS applies it
+        else:
+            assert commands == [(1, spec.counter_resource, 1, 1.0)]   # +1 per research, XS counts
+        assert tech.language_dll_help == spec.string_help + palace_techs.HELP_ID_OFFSET
+        assert len(tech.required_techs) == 6
+        assert [(c.type, c.amount) for c in tech.resource_costs if c.type >= 0] == list(spec.costs)
+        assert tech.language_dll_tech_tree == spec.string_name + palace_techs.TECH_TREE_OFFSET
+        assert tech.effect_id < len(data.effects)
+    # Coinage, the template, is untouched (clone is a deep copy).
+    vanilla_data = DatFile.parse(config_vanilla_dat())
+    assert data.techs[ids.COINAGE] == vanilla_data.techs[ids.COINAGE]
+    # Everything trained or researched at the Palace: one button each, except upgrade lines.
+    palace_units = {loc.button_id for unit in data.civs[1].units if unit is not None and unit.creatable
+                    for loc in unit.creatable.train_locations if loc.unit_id == palace_id}
+    assert palace_units == {supply_cart.PALACE_BUTTON_ID}
+    tech_buttons = [loc.button_id for t in data.techs for loc in t.research_locations
+                    if loc.location_id == palace_id]
+    assert sorted(set(tech_buttons)) == sorted({s.button for s in palace_techs.TECHS})
+    assert not palace_units & set(tech_buttons)
+    # One button per line: techs sharing a button form a chain.
+    buttons = {}
+    for spec in palace_techs.TECHS:
+        buttons.setdefault(spec.button, []).append(spec)
+    for specs in buttons.values():
+        assert all(s.requires is not None for s in specs[1:])
+
+
+def test_palace_tech_strings_exist():
+    from hinterland import SRC_STRINGS
+    from hinterland.datmod.patches import palace_techs
+
+    strings = (SRC_STRINGS / "en" / "key-value-modded-strings-utf8.txt").read_text(encoding="utf-8")
+    import re
+
+    families = [(s.string_name, s.string_creation, s.string_help, s.string_name + 71000)
+                for s in palace_techs.TECHS]
+    all_ids = [sid for family in families for sid in family]
+    assert len(set(all_ids)) == len(all_ids)
+    ids_in_file = [int(m) for m in re.findall(r"^(\d+) ", strings, flags=re.M)]
+    assert len(set(ids_in_file)) == len(ids_in_file)          # no ID defined twice in the mod
+    seen = set()
+    for spec in palace_techs.TECHS:
+        assert spec.requires is None or spec.requires in seen   # prerequisite listed first
+        seen.add(spec.key)
+        for sid in (spec.string_name, spec.string_creation, spec.string_help, spec.string_name + 71000):
+            assert f"\n{sid} " in strings, sid
+
+
+def test_build_ids_match_xsgen_defaults(built):
+    """Every XS constant the build fills is declared, and none stays at -1."""
+    from hinterland import xsgen
+
+    new_ids, _ = built
+    assert set(new_ids) == set(xsgen.DEFAULTS)
+
+
+def test_sabotage_counter_resource_unused_in_vanilla(built):
+    """Sabotage counts researches in a player resource no vanilla data touches."""
+    from genieutils.datfile import DatFile
+
+    from hinterland.datmod.patches import palace_techs
+
+    res = palace_techs.SABOTAGE_COUNTER_RESOURCE
+    data = DatFile.parse(config_vanilla_dat())
+    for effect in data.effects:
+        for c in effect.effect_commands:
+            assert not (c.type in (1, 6, 11, 16) and c.a == res), effect.name
+    for civ in data.civs:
+        assert civ.resources[res] == 0, civ.name
+    for tech in data.techs:
+        assert all(rc.type != res for rc in tech.resource_costs), tech.name

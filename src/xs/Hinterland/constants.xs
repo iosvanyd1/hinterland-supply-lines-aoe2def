@@ -93,7 +93,7 @@ extern const int cResMilitaryPop = 40;
 
 // ---- Supply window (design section 4) ----
 extern const int cSupplyRefuelSeconds = 90;     // added per cart delivery
-extern const int cSupplyCapSeconds = 180;       // max banked window
+extern const int cSupplyCapSeconds = 180;       // full max banked window; players start at cSupplyCapBasePercent of it
 // Map size scaling (decision 2026-10-15): refuel and cap scale with map width
 // against a Medium map (168 tiles), clamped; new buildings' 20 s does not scale.
 // Tiny 120 -> 71%, Normal 200 -> 119%, Giant 240 -> 142%.
@@ -121,6 +121,91 @@ extern const bool cDebugSupply = false;
 extern const float cPalaceRadius = 20.0;        // tiles
 extern const float cTownCenterRadius = 12.0;    // tiles, every TC
 
+
+// ---- Palace technologies (palace_techs.py; decision 2026-10-20) ----
+// Incomes are per minute; hlPalaceIncome pays them out in whole units as they
+// accrue (hlPayWhole), so the exact per-minute rate holds.
+// Decision 2026-10-20: every gold yield halved, so the techs ease the cost of
+// supply lines instead of becoming an economic engine of their own.
+// Decision 2026-10-20: no decimal numbers in any value the mod adds; any one that
+// would be fractional is rounded UP to the next whole number (2.5 -> 3).
+extern const float cFeudalTaxationFoodPerVillager = 5.0;      // per minute
+extern const float cFeudalTaxationMaxVillagers = 30.0;        // only the first 30 count (2026-10-20): max 150 food/min
+extern const float cDecentralizedGoldPerTc = 10.0;            // per minute, per supplied TC outside the Palace radius
+// Centralized Government, reworked 2026-10-20 toward upkeep relief: a flat
+// +25 gold/min with no TC condition, and the Palace radius +6 tiles (stacks
+// with Paved Roads: 20 -> 26, or 30 with both), so fewer buildings need carts.
+// Decentralized counts only supplied TCs outside the Palace radius.
+extern const float cCentralizedGold = 25.0;                   // per minute
+extern const float cCentralizedPalaceRadiusBonus = 6.0;       // tiles
+extern const float cProvincialGovernorsGold = 3.0;            // per delivery to a TC (halved 5 -> 2.5, rounded up)
+// Colonial Administration: +3 gold per 20 tiles between the Palace and the TC,
+// the 20 tiles scaled by map size (hlMapScaled), at most 10 steps (+30).
+// Recalibrated 2026-10-20 (playtest: max gold came too close): the full +30
+// now needs 200 tiles on Medium, double the old 100. Step size: Tiny 15,
+// Medium 20, Giant 29 tiles. Deliveries only reach TCs outside the Palace
+// radius (20 tiles), so on Medium a delivery earns at least 1 step (+3), and a
+// TC 60 tiles out earns 3 (+9). Only complete steps count. The total profit
+// is scaled by the supply a delivery adds and then rounded up.
+extern const float cColonialGoldPerStep = 3.0;                // halved 5 -> 2.5, rounded up
+extern const int cColonialStepTiles = 20;
+extern const float cColonialMaxSteps = 10.0;
+extern const float cPavedRoadsRadiusBonus = 4.0;              // tiles, Palace and TCs
+
+// Max supply (decision 2026-10-20): every cap is halved by default; Supply
+// Depots and Military Warehouses each add 25 points back (75%, then 100%).
+extern const int cSupplyCapBasePercent = 50;
+extern const int cSupplyDepotsPercent = 25;
+extern const int cMilitaryWarehousesPercent = 25;
+// Star Fortress: a Castle or Krepost whose TC is lost keeps this % of its max.
+extern const int cStarFortressPercent = 50;
+// Sabotage & Subterfuge: its tech effect adds 1 to this unused player resource
+// per research (= SABOTAGE_COUNTER_RESOURCE in palace_techs.py, tested). The
+// price starts at the dat cost and rises by the step after every use by anyone.
+extern const int cSabotageCounterRes = 10;
+extern const int cSabotageBaseFood = 500;
+extern const int cSabotageBaseGold = 1000;
+extern const int cSabotageStepFood = 250;
+extern const int cSabotageStepGold = 500;
+extern const int cSabotageMaxUses = 50;           // per player (stacking research cap)
+// Diplomacy stance "enemy" from xsGetDiplomacy (UGC constants, Diplomacy: 3).
+extern const int cDiplomacyEnemyId = 3;
+
+// ---- Attrition (decision 2026-10-20) ----
+// From Castle Age, non-cavalry military units outside every supply radius and
+// farther than cAttritionCartRadius from their own loaded Supply Cart lose
+// cAttritionPercent of their max HP every 2 s (hlAttrition): ~200 s to die for
+// every unit. Exact, not rounded up: the one exception to the whole-number rule
+// (decision 2026-10-20; rounding up killed 30-100 HP units 1.5-3.3x faster).
+extern const float cAttritionCartRadius = 20.0;               // tiles
+extern const float cAttritionPercent = 1.0;
+// Unit classes as XS class IDs (900 + dat class; UGC constants, Object Class).
+// Cavalry (912), cavalry archers (936), scouts (947), mounted gunpowder (923),
+// heroes and the King (959) never suffer attrition; ships are not land units;
+// monks carrying a relic (943) are spared too. Only 900/904/906/912 are cited
+// in the KB; the rest follow the same 900 + dat class rule (unverified, T37).
+extern const int cArcherClassId = 900;
+extern const int cInfantryClassId = 906;
+extern const int cSiegeClassId = 913;
+extern const int cMonkClassId = 918;
+extern const int cWarDogClassId = 928;
+extern const int cPetardClassId = 935;
+extern const int cHandCannoneerClassId = 944;
+extern const int cPackedSiegeClassId = 951;
+extern const int cUnpackedSiegeClassId = 954;
+extern const int cScorpionClassId = 955;
+extern const int cVillagerClassId = 904;
+
+// ---- AI players (decision 2026-10-20) ----
+// The AI cannot use the Palace or carts, so no XS rule touches computer players
+// (xsGetPlayerType; UGC constants, Player Type: 3 = computer).
+extern const int cPlayerTypeComputerId = 3;
+// Switch: true = computer players are exempt from every mod rule (release
+// default). false = the AI is treated like a human (supply, attrition, Siege &
+// Starve Out, Bribe and Sabotage targets), for testing techs against it.
+// Leave it true here; `python -m hinterland build --dev --ai-affected` flips it
+// in the build copy only (assemble.py).
+extern const bool cExemptComputerPlayers = true;
 
 // ---- Ages (resource cAttributeCurrentAge; standard values, verify) ----
 extern const int cAgeCastle = 2;                // supply rules start here (design section 3)

@@ -40,6 +40,19 @@ DEFAULTS = {
     "cDarkFolwarkId": -1,
     "cDarkSettlementId": -1,
     "cDarkMuleCartId": -1,
+    "cFeudalTaxationTech": -1,
+    "cProvincialGovernorsTech": -1,
+    "cPavedRoadsTech": -1,
+    "cDecentralizedGovernmentTech": -1,
+    "cColonialAdministrationTech": -1,
+    "cCentralizedGovernmentTech": -1,
+    "cDarkCastleId": -1,
+    "cSupplyDepotsTech": -1,
+    "cMilitaryWarehousesTech": -1,
+    "cStarFortressTech": -1,
+    "cSiegeAndStarveTech": -1,
+    "cBribeOfficialsTech": -1,
+    "cSabotageTech": -1,
 }
 
 HEADER = """\

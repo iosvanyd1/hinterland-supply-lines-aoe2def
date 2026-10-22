@@ -71,6 +71,8 @@ Never edit `default0.xs` in the install folder. The game overwrites it.
 .venv\Scripts\python.exe -m hinterland lint      # xs-check; must exit 0
 .venv\Scripts\python.exe -m pytest -q
 .venv\Scripts\python.exe -m hinterland build --dev                     # "Hinterland Supply Lines (dev)"
+# add --ai-affected to treat computer players like humans (testing techs vs the AI);
+# without it, and always in release builds, the AI is exempt (cExemptComputerPlayers)
 scripts\deploy.ps1 -ModName HinterlandSupplyLinesDev                    # close the game first
 # 2. launch the game and test with the (dev) data mod (section 5)
 ```

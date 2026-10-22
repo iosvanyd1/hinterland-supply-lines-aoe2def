@@ -45,6 +45,7 @@ DONJON = 1665
 # Effect type 3 turns Dock 45/133/47/51 into the Harbor (Thalassocracy),
 # Monastery 104/30/31/32 into the Fortified Church, Outpost 598 into Fortified
 # Outpost 2415, and TC 109 into the Economic / Military / Defensive TC.
+CASTLE = 82               # goes dark only once an enemy has Siege & Starve Out (palace_techs.py)
 KREPOST = 1251
 HARBOR = 1189
 FORTIFIED_CHURCH = 1806
@@ -57,6 +58,8 @@ MILITARY_TOWN_CENTER = 2277
 # Techs
 FEUDAL_AGE = 101          # dat names are off by one; go by ID
 CASTLE_AGE = 102          # dat names are off by one; go by ID
+IMPERIAL_AGE = 103        # dat names are off by one; go by ID
+COINAGE = 23              # Market tech; template for the Palace techs
 HERESY = 439
 
 # Effect command types
