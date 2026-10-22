@@ -25,6 +25,12 @@ Record every in-game test here, newest first. Test IDs are from [research/TECHNI
 
 ## Log
 
+### 2026-10-21 — T35-T43 Palace techs, attrition, AI switch
+- Build: fd10f09 (dev, `--ai-affected`), branch feat/palace-techs-ai-attrition
+- Setup: skirmish with the dev data mod and the Text mod On, AI opponent affected by the mod
+- Result: pass. User: "The MOD is working as expected. Every single element."
+- Covers: all 12 Palace techs (incomes, cart profit, radii, caps, Star Fortress, Siege & Starve Out, Bribe Officials, Sabotage & Subterfuge), attrition, halved caps, dry Castles pushing their garrison out, whole-number values, the AI switch.
+
 ## Test 2
 
 ```
